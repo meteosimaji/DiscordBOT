@@ -1,4 +1,4 @@
-#YoneRai Discord Bot
+# YoneRai Discord Bot
 概要
 YoneRai Discord Botは、音楽再生・AI質問・翻訳・各種便利コマンドを搭載した多機能BOTです。
 「/コマンド」または「y!コマンド」で直感的に使えるよう設計されています。
