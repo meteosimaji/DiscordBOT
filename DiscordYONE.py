@@ -1102,3 +1102,4 @@ async def on_message(msg: discord.Message):
 
 # ───────────────── 起動 ─────────────────
 client.run(TOKEN)
+
