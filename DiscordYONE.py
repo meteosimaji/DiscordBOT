@@ -7,15 +7,11 @@ from logging.handlers import RotatingFileHandler
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    with open("token.txt", "r", encoding="utf-8") as f:
-        TOKEN = f.read().strip()
+with open("token.txt", "r", encoding="utf-8") as f:
+    TOKEN = f.read().strip()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
-        OPENAI_API_KEY = f.read().strip()
+with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
+    OPENAI_API_KEY = f.read().strip()
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
