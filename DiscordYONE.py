@@ -1,4 +1,5 @@
-import os, re, time, random, discord, openai,tempfile
+import os, re, time, random, discord, openai, tempfile
+from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
 with open("token.txt", "r", encoding="utf-8") as f:
@@ -39,27 +40,55 @@ YTDL_OPTS = {
     "quiet": True,
     "format": "bestaudio[ext=m4a]/bestaudio/best",
     "default_search": "ytsearch",
-    "noplaylist": True,
 }
 
-def yt_extract(url_or_term: str) -> tuple[str, str]:
-    """(title, direct_audio_url) を返す"""
+@dataclass
+class Track:
+    title: str
+    url: str
+    duration: int | None = None
+
+def yt_extract(url_or_term: str) -> list[Track]:
+    """URL か検索語から Track 一覧を返す (単曲の場合は長さ1)"""
     with YoutubeDL(YTDL_OPTS) as ydl:
         info = ydl.extract_info(url_or_term, download=False)
-        # ytsearch の場合は 'entries' にリストされる
         if "entries" in info:
+            if info.get("_type") == "playlist":
+                results = []
+                for ent in info.get("entries", []):
+                    if ent:
+                        results.append(Track(ent.get("title", "?"), ent.get("url", ""), ent.get("duration")))
+                return results
             info = info["entries"][0]
-        return info["title"], info["url"]
+        return [Track(info.get("title", "?"), info.get("url", ""), info.get("duration"))]
     
 import asyncio, collections
 
+def fmt_time(sec: int) -> str:
+    m, s = divmod(int(sec), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+def make_bar(pos: int, total: int, width: int = 15) -> str:
+    if total <= 0:
+        return "".ljust(width, "─")
+    index = round(pos / total * (width - 1))
+    return "━" * index + "⚪" + "─" * (width - index - 1)
+
+def num_emoji(n: int) -> str:
+    emojis = ["0️⃣","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
+    return emojis[n] if 0 <= n < len(emojis) else str(n)
+
 class MusicState:
     def __init__(self):
-        self.queue   = collections.deque()
-        self.loop    = False
-        self.current = None
+        self.queue   = collections.deque()   # Track objects
+        self.loop    = 0  # 0:OFF,1:SONG,2:QUEUE
+        self.current: Track | None = None
         self.play_next = asyncio.Event()
-        self.queue_msg: discord.Message | None = None   # ← 追加
+        self.queue_msg: discord.Message | None = None
+        self.start_time: float | None = None
 
     async def player_loop(self, voice: discord.VoiceClient, channel: discord.TextChannel):
         """
@@ -80,7 +109,7 @@ class MusicState:
 
             # 再生準備
             self.current = self.queue[0]
-            title, url   = self.current
+            title, url = self.current.title, self.current.url
 
             ffmpeg_audio = discord.FFmpegPCMAudio(
                 source=url,
@@ -89,17 +118,24 @@ class MusicState:
                 options='-vn -loglevel warning -af "volume=0.9"'
             )
             voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
+            self.start_time = time.time()
 
             # チャット通知 & Embed 更新
             await channel.send(f"▶️ **Now playing**: {title}")
             await refresh_queue(self)
 
+            progress_task = asyncio.create_task(progress_updater(self))
+
             # 次曲まで待機
             await self.play_next.wait()
+            progress_task.cancel()
+            self.start_time = None
 
             # ループOFFなら再生し終えた曲をキューから外す
-            if not self.loop and self.queue:
+            if self.loop == 0 and self.queue:
                 self.queue.popleft()
+            elif self.loop == 2 and self.queue:
+                self.queue.rotate(-1)
 
 # クラス外でOK
 async def refresh_queue(state: "MusicState"):
@@ -109,6 +145,15 @@ async def refresh_queue(state: "MusicState"):
             await state.queue_msg.edit(embed=make_embed(state))
         except discord.HTTPException:
             pass
+
+async def progress_updater(state: "MusicState"):
+    """再生中は1秒ごとにシークバーを更新"""
+    try:
+        while True:
+            await asyncio.sleep(1)
+            await refresh_queue(state)
+    except asyncio.CancelledError:
+        pass
 
 # ──────────── 🖼 名言化 APIヘルパ ────────────
 import json, aiohttp, pathlib
@@ -216,8 +261,16 @@ def make_embed(state: "MusicState") -> discord.Embed:
 
     # Now Playing
     if state.current:
-        title, _ = state.current
-        emb.add_field(name="Now Playing", value=title, inline=False)
+        emb.add_field(name="▶️ Now Playing:", value=state.current.title, inline=False)
+        if state.start_time is not None and state.current.duration:
+            pos = int(time.time() - state.start_time)
+            pos = max(0, min(pos, state.current.duration))
+            bar = make_bar(pos, state.current.duration)
+            emb.add_field(
+                name=f"[{bar}] {fmt_time(pos)} / {fmt_time(state.current.duration)}",
+                value="\u200b",
+                inline=False
+            )
     else:
         emb.add_field(name="Now Playing", value="Nothing", inline=False)
 
@@ -228,10 +281,10 @@ def make_embed(state: "MusicState") -> discord.Embed:
 
     if queue_list:
         lines, chars = [], 0
-        for i, (t, _) in enumerate(queue_list):
-            line = f"{i+1}. {t}"
-            if chars + len(line) + 1 > 800:        # 800 文字で打ち止め
-                lines.append(f"…and **{len(queue_list)-i}** more")
+        for i, tr in enumerate(queue_list, 1):
+            line = f"{num_emoji(i)} {tr.title}"
+            if chars + len(line) + 1 > 800:
+                lines.append(f"…and **{len(queue_list)-i+1}** more")
                 break
             lines.append(line)
             chars += len(line) + 1
@@ -240,7 +293,8 @@ def make_embed(state: "MusicState") -> discord.Embed:
         body = "Empty"
 
     emb.add_field(name="Up Next", value=body, inline=False)
-    emb.set_footer(text=f"Loop: {'ON' if state.loop else 'OFF'}")
+    loop_map = {0: "OFF", 1: "Song", 2: "Queue"}
+    emb.set_footer(text=f"Loop: {loop_map.get(state.loop, 'OFF')}")
     return emb
 
 class ControlView(discord.ui.View):
@@ -248,6 +302,8 @@ class ControlView(discord.ui.View):
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
         super().__init__(timeout=180)
         self.state, self.vc, self.owner_id = state, vc, owner_id
+        labels = {0: "OFF", 1: "Song", 2: "Queue"}
+        self.children[-1].label = f"🔁 Loop: {labels[self.state.loop]}"
 
     async def interaction_check(self, itx: discord.Interaction) -> bool:
         if itx.user.id != self.owner_id:
@@ -276,9 +332,11 @@ class ControlView(discord.ui.View):
             self.vc.resume()
         await itx.response.defer()
 
-    @discord.ui.button(label="🔂 Loop ON/OFF", style=discord.ButtonStyle.success)
-    async def _loop_toggle(self, itx: discord.Interaction, _: discord.ui.Button):
-        self.state.loop = not self.state.loop
+    @discord.ui.button(label="🔁 Loop: OFF", style=discord.ButtonStyle.success)
+    async def _loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
+        self.state.loop = (self.state.loop + 1) % 3
+        labels = {0: "OFF", 1: "Song", 2: "Queue"}
+        btn.label = f"🔁 Loop: {labels[self.state.loop]}"
         await refresh_queue(self.state)
         await itx.response.defer()
 
@@ -474,14 +532,17 @@ async def cmd_play(msg: discord.Message, query: str):
 
     # YouTube-DL/yt-dlp 等で URL 抽出
     try:
-        title, url = yt_extract(query)
+        tracks = yt_extract(query)
     except Exception as e:
         await msg.reply(f"🔍 取得失敗: {e}")
         return
-    
-    state.queue.append((title, url))
-    await refresh_queue(state)          # ← 追加
-    await msg.channel.send(f"⏱️ **Queued**: {title}")
+
+    state.queue.extend(tracks)
+    await refresh_queue(state)
+    if len(tracks) == 1:
+        await msg.channel.send(f"⏱️ **Queued**: {tracks[0].title}")
+    else:
+        await msg.channel.send(f"⏱️ Added {len(tracks)} tracks to queue")
 
     # 再生していなければループを起動
     if not voice.is_playing() and not state.play_next.is_set():
@@ -517,7 +578,7 @@ async def on_voice_state_update(member, before, after):
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "**🎵 音楽機能**\n"
-        "`y!play <URL/キーワード>` - 曲をキューに追加して再生\n"
+        "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリストを追加\n"
         "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop）\n"
         "\n"
         "**💬 翻訳機能**\n"
