@@ -61,6 +61,48 @@ def yt_extract(url_or_term: str) -> list[Track]:
                 return results
             info = info["entries"][0]
         return [Track(info.get("title", "?"), info.get("url", ""), info.get("duration"))]
+
+
+async def attachment_to_track(att: discord.Attachment) -> Track:
+    """Discord 添付ファイルを一時保存して Track に変換"""
+    fd, path = tempfile.mkstemp(prefix="yone_", suffix=os.path.splitext(att.filename)[1])
+    os.close(fd)
+    await att.save(path)
+    return Track(att.filename, path)
+
+
+async def attachments_to_tracks(attachments: list[discord.Attachment]) -> list[Track]:
+    """複数添付ファイルを並列で Track に変換"""
+    tasks = [attachment_to_track(a) for a in attachments]
+    return await asyncio.gather(*tasks)
+
+
+def yt_extract_multiple(urls: list[str]) -> list[Track]:
+    """複数 URL を順に yt_extract して Track をまとめて返す"""
+    tracks: list[Track] = []
+    for url in urls:
+        try:
+            tracks.extend(yt_extract(url))
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+    return tracks
+
+
+def cleanup_track(track: Track | None):
+    """ローカルファイルの場合は削除"""
+    if track and os.path.exists(track.url):
+        try:
+            os.remove(track.url)
+        except Exception as e:
+            print(f"cleanup failed for {track.url}: {e}")
+
+
+def parse_message_link(link: str) -> tuple[int, int, int] | None:
+    """Discord メッセージリンクを guild, channel, message ID に分解"""
+    m = re.search(r"discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)", link)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
     
 import asyncio, collections
 
@@ -134,7 +176,8 @@ class MusicState:
 
             # ループOFFなら再生し終えた曲をキューから外す
             if self.loop == 0 and self.queue:
-                self.queue.popleft()
+                finished = self.queue.popleft()
+                cleanup_track(finished)
             elif self.loop == 2 and self.queue:
                 self.queue.rotate(-1)
 
@@ -515,17 +558,17 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
             None,
-            lambda: openai.responses.create(
+            lambda: openai.chat.completions.create(
                 model="gpt-4.1",
+                messages=[{"role": "user", "content": prompt}],
                 tools=[
                     {"type": "web_search_preview"},
                     {"type": "code_interpreter", "container": {"type": "auto"}}
                 ],
-                input=prompt,
                 temperature=0.7
             )
         )
-        ans = resp.output_text.strip()
+        ans = resp.choices[0].message.content.strip()
         await msg.channel.send(ans[:1900] + ("…" if len(ans) > 1900 else ""))
     except Exception as e:
         await msg.channel.send(f"エラー: {e}")
@@ -533,8 +576,10 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 # ──────────── 🎵  コマンド郡 ────────────
 async def cmd_play(msg: discord.Message, query: str):
     """曲をキューに追加して再生を開始"""
-    if not query:
-        await msg.reply("`y!play <URL または 検索語>` の形式で使ってね！")
+    args = query.split()
+    attachments = msg.attachments
+    if not args and not attachments:
+        await msg.reply("URLまたは添付ファイルを指定してね！")
         return
 
     voice = await ensure_voice(msg)
@@ -543,19 +588,27 @@ async def cmd_play(msg: discord.Message, query: str):
 
     state = guild_states.setdefault(msg.guild.id, MusicState())
 
-    # YouTube-DL/yt-dlp 等で URL 抽出
-    try:
-        tracks = yt_extract(query)
-    except Exception as e:
-        await msg.reply(f"🔍 取得失敗: {e}")
+    tracks: list[Track] = []
+
+    if attachments:
+        try:
+            tracks += await attachments_to_tracks(attachments)
+        except Exception as e:
+            await msg.reply(f"添付ファイル取得エラー: {e}")
+            return
+
+    if args:
+        url_tracks = yt_extract_multiple(args)
+        if not url_tracks:
+            await msg.reply("URLから曲を取得できませんでした。")
+        tracks += url_tracks
+
+    if not tracks:
         return
 
     state.queue.extend(tracks)
     await refresh_queue(state)
-    if len(tracks) == 1:
-        await msg.channel.send(f"⏱️ **Queued**: {tracks[0].title}")
-    else:
-        await msg.channel.send(f"⏱️ Added {len(tracks)} tracks to queue")
+    await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
 
     # 再生していなければループを起動
     if not voice.is_playing() and not state.play_next.is_set():
@@ -566,8 +619,80 @@ async def cmd_stop(msg: discord.Message, _):
     """Bot を VC から切断し、キュー初期化"""
     if vc := msg.guild.voice_client:
         await vc.disconnect()
-    guild_states.pop(msg.guild.id, None)
+    state = guild_states.pop(msg.guild.id, None)
+    if state:
+        cleanup_track(state.current)
+        for tr in state.queue:
+            cleanup_track(tr)
     await msg.add_reaction("⏹️")
+
+
+async def cmd_purge(msg: discord.Message, arg: str):
+    """指定数またはリンク以降のメッセージを一括削除"""
+    if not msg.guild:
+        await msg.reply("サーバー内でのみ使用できます。")
+        return
+
+    target_channel: discord.TextChannel = msg.channel
+    target_message: discord.Message | None = None
+    arg = arg.strip()
+    if not arg:
+        await msg.reply("`y!purge <数>` または `y!purge <メッセージリンク>` の形式で指定してね！")
+        return
+
+    if arg.isdigit():
+        limit = min(int(arg), 1000)
+    else:
+        ids = parse_message_link(arg)
+        if not ids:
+            await msg.reply("形式が正しくないよ！")
+            return
+        gid, cid, mid = ids
+        if gid != msg.guild.id:
+            await msg.reply("このサーバーのメッセージリンクを指定してね！")
+            return
+        ch = msg.guild.get_channel(cid)
+        if ch is None or not isinstance(ch, discord.TextChannel):
+            await msg.reply("リンク先チャンネルが見つかりません。")
+            return
+        target_channel = ch
+        try:
+            target_message = await ch.fetch_message(mid)
+        except discord.NotFound:
+            await msg.reply("指定したメッセージが見つかりませんでした。")
+            return
+        limit = None
+
+    # 権限チェック
+    perms_user = target_channel.permissions_for(msg.author)
+    perms_bot = target_channel.permissions_for(msg.guild.me)
+    if not (perms_user.manage_messages and perms_bot.manage_messages):
+        await msg.reply("管理メッセージ権限が足りません。")
+        return
+
+    deleted_total = 0
+    try:
+        if target_message is None:
+            deleted = await target_channel.purge(limit=limit)
+            deleted_total = len(deleted)
+        else:
+            after = target_message
+            while True:
+                batch = await target_channel.purge(after=after, limit=100)
+                if not batch:
+                    break
+                deleted_total += len(batch)
+                after = batch[-1]
+            try:
+                await target_message.delete()
+                deleted_total += 1
+            except discord.HTTPException:
+                pass
+    except discord.Forbidden:
+        await msg.reply("権限不足で削除できませんでした。")
+        return
+
+    await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
 
 
 # ──────────── 🎵  自動切断ハンドラ ────────────
@@ -587,7 +712,11 @@ async def on_voice_state_update(member, before, after):
         try:
             await voice.disconnect()
         finally:
-            guild_states.pop(member.guild.id, None)
+            st = guild_states.pop(member.guild.id, None)
+            if st:
+                cleanup_track(st.current)
+                for tr in st.queue:
+                    cleanup_track(tr)
 
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
@@ -609,6 +738,7 @@ async def cmd_help(msg: discord.Message):
         "`y!say <text>` - エコー\n"
         "`y!date` - 今日の日時\n"
         "`y!XdY` - ダイス(例: y!2d6)\n"
+        "`y!purge <n|link>` - メッセージ一括削除\n"
         "`y!help` - このヘルプ\n"
         "`y!?`  - 返信で使うと名言化"
     )
@@ -1048,6 +1178,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "help": await cmd_help(msg)
     elif cmd == "play": await cmd_play(msg, arg)
     elif cmd == "queue":await cmd_queue(msg, arg)
+    elif cmd == "purge":await cmd_purge(msg, arg)
 
 # ───────────────── 起動 ─────────────────
 client.run(TOKEN)
