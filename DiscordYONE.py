@@ -1189,6 +1189,7 @@ async def cmd_remove(msg: discord.Message, arg: str):
     for tr in removed:
         cleanup_track(tr)
     await refresh_queue(state)
+    await msg.channel.send(f"🗑️ {len(removed)}件削除しました！")
 
 
 async def cmd_keep(msg: discord.Message, arg: str):
@@ -1212,6 +1213,7 @@ async def cmd_keep(msg: discord.Message, arg: str):
     for tr in removed:
         cleanup_track(tr)
     await refresh_queue(state)
+    await msg.channel.send(f"🗑️ {len(removed)}件削除しました！")
 
 
 async def cmd_purge(msg: discord.Message, arg: str):
@@ -1297,7 +1299,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
         await msg.reply("権限不足で削除できませんでした。", delete_after=5)
         return
 
-    await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
+    await msg.channel.send(f"🧹 {deleted_total}件削除しました！")
 
 
 # ──────────── 🎵  自動切断ハンドラ ────────────
@@ -1336,36 +1338,37 @@ async def on_voice_state_update(member, before, after):
 
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
-        "**🎵 音楽機能**\n"
-        "`y!play` `/play` - 曲やプレイリストを追加 (スラッシュ版は file: 引数で添付)\n"
-        "`y!queue` `/queue` - キュー表示＆操作 (Skip / Shuffle / Pause / Resume / Loop / Leave)\n"
-        "   ※パネルが反応しない場合はもう一度 `y!queue` を実行してね！\n"
+        "🎵 音楽機能\n"
+        "y!play / /play … 曲やプレイリストを追加（/playはfile:引数でファイル添付OK）\n"
+        "y!queue / /queue … キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）\n"
+        "y!remove <番号> / /remove <番号> … 指定した曲をキューから削除\n"
+        "y!keep <番号> / /keep <番号> … 指定番号以外の曲をまとめて削除\n"
+        "y!stop / /stop … VCから退出\n"
+        "　※パネルが反応しない場合はもう一度実行！\n"
         "\n"
-        "**💬 翻訳機能**\n"
-        "国旗リアクションを付けると、そのメッセージを自動翻訳\n"
+        "💬 翻訳機能\n"
+        "国旗リアクションで自動翻訳\n"
         "\n"
-        "**🤖 AI/ツール**\n"
-        "`y? <質問>` `/gpt <質問>` - GPT-4.1 が Web検索 & Python 実行で回答\n"
+        "🤖 AI/ツール\n"
+        "y? <質問> / /gpt <質問> … ChatGPT（GPT-4.1）で質問や相談ができるAI回答\n"
         "\n"
-        "**🧑 ユーザー情報**\n"
-        "`y!user <id>` `/user <id>` - プロフィールを表示\n"
+        "🧑 ユーザー情報\n"
+        "y!user <id> / /user <id> … プロフィール表示\n"
         "\n"
-        "**🕹️ その他**\n"
-        "`y!ping` `/ping` - 応答速度\n"
-        "`y!say <text>` `/say` - エコー\n"
-        "`y!date` `/date` - 今日の日時\n"
-        "`y!XdY` `/dice` - ダイス(例: 2d6)\n"
-        "`y!purge <n|link>` `/purge` - メッセージ一括削除\n"
-        "`y!help` `/help` - このヘルプ\n"
-        "`y!?` - 返信で使うと名言化\n"
+        "🕹️ その他\n"
+        "y!ping / /ping … 応答速度\n"
+        "y!say <text> / /say … エコー\n"
+        "y!date / /date … 日時表示（/dateはtimestampオプションもOK）\n"
+        "y!XdY / /dice … ダイス（例: 2d6）\n"
+        "y!purge <n|link> / /purge … メッセージ一括削除\n"
+        "y!help / /help … このヘルプ\n"
+        "y!? … 返信で使うと名言化\n"
         "\n"
-        "■ Slash Commands\n"
-        "/ping [file] … Ping を返します（オプションでファイル添付可能）\n"
-        "/date        … 現在日時を表示\n"
-        "例: /ping\n"
-        "例: /ping file:<アップロードするファイル>\n"
-        "\nテキストコマンドではメッセージにファイルを直接添付してください。\n"
-        "GPT-4.1 は Web検索と Code Interpreter を利用します。"
+        "🔰 コマンドの使い方\n"
+        "テキストコマンド: y!やy?などで始めて送信\n"
+        "　例: y!play Never Gonna Give You Up\n"
+        "スラッシュコマンド: /で始めてコマンド名を選択\n"
+        "　例: /play /queue /remove 1 2 3 /keep 2 /gpt 猫とは？"
     )
 
 
