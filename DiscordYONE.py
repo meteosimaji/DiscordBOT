@@ -515,17 +515,17 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
             None,
-            lambda: openai.responses.create(
+            lambda: openai.chat.completions.create(
                 model="gpt-4.1",
+                messages=[{"role": "user", "content": prompt}],
                 tools=[
                     {"type": "web_search_preview"},
                     {"type": "code_interpreter", "container": {"type": "auto"}}
                 ],
-                input=prompt,
                 temperature=0.7
             )
         )
-        ans = resp.output_text.strip()
+        ans = resp.choices[0].message.content.strip()
         await msg.channel.send(ans[:1900] + ("…" if len(ans) > 1900 else ""))
     except Exception as e:
         await msg.channel.send(f"エラー: {e}")
