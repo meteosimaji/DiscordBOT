@@ -1,5 +1,6 @@
-import os, re, time, random, discord, openai, tempfile
+import os, re, time, random, discord, openai, tempfile, logging
 from urllib.parse import urlparse, parse_qs
+
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
@@ -8,6 +9,10 @@ with open("token.txt", "r", encoding="utf-8") as f:
 
 with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
     openai.api_key = f.read().strip()
+
+# ───────────────── Logger ─────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ───────────────── Discord 初期化 ─────────────────
 intents = discord.Intents.default()
@@ -88,6 +93,50 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
         except Exception as e:
             print(f"取得失敗 ({url}): {e}")
     return tracks
+
+
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+def is_http_source(path_or_url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return path_or_url.startswith(("http://", "https://"))
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
 
 
 def is_playlist_url(url: str) -> bool:
@@ -200,19 +249,34 @@ class MusicState:
             self.current = self.queue[0]
             title, url = self.current.title, self.current.url
 
-            before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5" if is_http_url(url) else None
+
+            before_opts = (
+                "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+                if is_http_source(url) else ""
+            )
             try:
                 ffmpeg_audio = discord.FFmpegPCMAudio(
                     source=url,
                     executable="ffmpeg",
-                    before_options=before,
+                    before_options=before_opts,
                     options='-vn -loglevel warning -af "volume=0.9"'
                 )
+                voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
             except FileNotFoundError:
-                await channel.send("⚠️ ffmpeg が見つかりません。インストールしてください。")
-                return
-            voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
+                logger.error("ffmpeg executable not found")
+                await channel.send(
+                    "⚠️ **ffmpeg が見つかりません** — サーバーに ffmpeg をインストールして再試行してください。"
+                )
+                cleanup_track(self.queue.popleft())
+                continue
+            except Exception as e:
+                logger.error(f"ffmpeg 再生エラー: {e}")
+                await channel.send(f"⚠️ `{title}` の再生に失敗しました（{e}）")
+                cleanup_track(self.queue.popleft())
+                continue
+
             self.start_time = time.time()
+
 
             # チャット通知 & Embed 更新
             await channel.send(f"▶️ **Now playing**: {title}")
@@ -653,6 +717,7 @@ async def cmd_play(msg: discord.Message, query: str):
             await msg.reply(f"添付ファイル取得エラー: {e}")
             return
 
+
     playlist_handled = False
     if args:
         if len(args) == 1 and is_playlist_url(args[0]):
@@ -676,6 +741,7 @@ async def cmd_play(msg: discord.Message, query: str):
     # 再生していなければループを起動
     if state.queue and not voice.is_playing() and not state.play_next.is_set():
         client.loop.create_task(state.player_loop(voice, msg.channel))
+
 
 
 
