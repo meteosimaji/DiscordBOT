@@ -99,6 +99,11 @@ def is_playlist_url(url: str) -> bool:
         return False
 
 
+def is_http_url(url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return url.startswith("http://") or url.startswith("https://")
+
+
 async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
@@ -195,12 +200,17 @@ class MusicState:
             self.current = self.queue[0]
             title, url = self.current.title, self.current.url
 
-            ffmpeg_audio = discord.FFmpegPCMAudio(
-                source=url,
-                executable="ffmpeg",
-                before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                options='-vn -loglevel warning -af "volume=0.9"'
-            )
+            before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5" if is_http_url(url) else None
+            try:
+                ffmpeg_audio = discord.FFmpegPCMAudio(
+                    source=url,
+                    executable="ffmpeg",
+                    before_options=before,
+                    options='-vn -loglevel warning -af "volume=0.9"'
+                )
+            except FileNotFoundError:
+                await channel.send("⚠️ ffmpeg が見つかりません。インストールしてください。")
+                return
             voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
             self.start_time = time.time()
 
