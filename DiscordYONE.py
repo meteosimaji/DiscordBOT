@@ -258,6 +258,10 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
     """プレイリストの曲を逐次取得してキューへ追加"""
+    qs = parse_qs(urlparse(playlist_url).query)
+    list_id = qs.get("list", [None])[0]
+    if list_id:
+        playlist_url = f"https://www.youtube.com/playlist?list={list_id}"
     loop = asyncio.get_event_loop()
     info = await loop.run_in_executor(
         None,
@@ -265,6 +269,9 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
             playlist_url, download=False)
     )
     entries = info.get("entries", [])
+    if not entries:
+        await channel.send("⚠️ プレイリストに曲が見つかりませんでした。", delete_after=5)
+        return
     await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
     for ent in entries:
         url = ent.get("url")
