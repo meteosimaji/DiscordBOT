@@ -14,6 +14,10 @@ with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ───────────────── Logger ─────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ───────────────── Discord 初期化 ─────────────────
 intents = discord.Intents.default()
 intents.message_content = True          # メッセージ内容を取得
@@ -93,6 +97,50 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
         except Exception as e:
             print(f"取得失敗 ({url}): {e}")
     return tracks
+
+
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+def is_http_source(path_or_url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return path_or_url.startswith(("http://", "https://"))
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
 
 
 def is_playlist_url(url: str) -> bool:
@@ -249,7 +297,6 @@ class MusicState:
             self.current = self.queue[0]
             title, url = self.current.title, self.current.url
 
-
             before_opts = (
                 "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
                 if is_http_source(url) else ""
@@ -276,6 +323,7 @@ class MusicState:
                 continue
 
             self.start_time = time.time()
+
 
 
             # チャット通知 & Embed 更新
@@ -360,7 +408,7 @@ async def make_quote_image(user, text, color=False) -> pathlib.Path:
 # ──────────── ボタン付き View ────────────
 class QuoteView(discord.ui.View):
     def __init__(self, invoker: discord.User, payload: dict):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.invoker = invoker    # 操作できる人
         self.payload = payload    # {user, text, color}
 
@@ -368,7 +416,8 @@ class QuoteView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker.id:
             await interaction.response.send_message(
-                "作った人しか触れないよ！", ephemeral=True
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
             )
             return False
         return True
@@ -382,13 +431,27 @@ class QuoteView(discord.ui.View):
 
     @discord.ui.button(label="🎨 カラー", style=discord.ButtonStyle.success)
     async def btn_color(self, inter: discord.Interaction, _):
-        self.payload["color"] = True
-        await self._regen(inter)
+        try:
+            self.payload["color"] = True
+            await self._regen(inter)
+        except Exception:
+            await inter.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="⚫ モノクロ", style=discord.ButtonStyle.secondary)
     async def btn_mono(self, inter: discord.Interaction, _):
-        self.payload["color"] = False
-        await self._regen(inter)
+        try:
+            self.payload["color"] = False
+            await self._regen(inter)
+        except Exception:
+            await inter.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
 # ──────────── 🎵  VCユーティリティ ────────────
 guild_states: dict[int, "MusicState"] = {}
@@ -461,7 +524,7 @@ def make_embed(state: "MusicState") -> discord.Embed:
 class ControlView(discord.ui.View):
     """再生操作やループ・自動退出の切替ボタンをまとめた View"""
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.state, self.vc, self.owner_id = state, vc, owner_id
         self._update_labels()
 
@@ -473,44 +536,82 @@ class ControlView(discord.ui.View):
 
     async def interaction_check(self, itx: discord.Interaction) -> bool:
         if itx.user.id != self.owner_id:
-            await itx.response.send_message("🙅 発行者専用ボタンだよ", ephemeral=True)
+            await itx.response.send_message(
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
+            )
             return False
         return True
 
     # --- ボタン定義 ---
     @discord.ui.button(label="⏭ Skip", style=discord.ButtonStyle.primary)
     async def _skip(self, itx: discord.Interaction, _: discord.ui.Button):
-        if self.vc.is_playing():
-            self.vc.stop()
-        await itx.response.defer()
+        try:
+            if self.vc.is_playing():
+                self.vc.stop()
+            await itx.response.defer()
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="🔀 Shuffle", style=discord.ButtonStyle.primary)
     async def _shuffle(self, itx: discord.Interaction, _: discord.ui.Button):
-        random.shuffle(self.state.queue)
-        await refresh_queue(self.state)
-        await itx.response.defer()
+        try:
+            random.shuffle(self.state.queue)
+            await refresh_queue(self.state)
+            await itx.response.defer()
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="⏯ Pause/Resume", style=discord.ButtonStyle.secondary)
     async def _pause_resume(self, itx: discord.Interaction, _: discord.ui.Button):
-        if self.vc.is_playing():
-            self.vc.pause()
-        elif self.vc.is_paused():
-            self.vc.resume()
-        await itx.response.defer()
+        try:
+            if self.vc.is_playing():
+                self.vc.pause()
+            elif self.vc.is_paused():
+                self.vc.resume()
+            await itx.response.defer()
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="🔁 Loop: OFF", style=discord.ButtonStyle.success)
     async def loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
-        self.state.loop = (self.state.loop + 1) % 3
-        self._update_labels()
-        await itx.response.edit_message(embed=make_embed(self.state), view=self)
-        await refresh_queue(self.state)
+        try:
+            self.state.loop = (self.state.loop + 1) % 3
+            self._update_labels()
+            await itx.response.edit_message(embed=make_embed(self.state), view=self)
+            await refresh_queue(self.state)
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="👋 Auto Leave: ON", style=discord.ButtonStyle.success)
     async def leave_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
-        self.state.auto_leave = not self.state.auto_leave
-        self._update_labels()
-        await itx.response.edit_message(embed=make_embed(self.state), view=self)
-        await refresh_queue(self.state)
+        try:
+            self.state.auto_leave = not self.state.auto_leave
+            self._update_labels()
+            await itx.response.edit_message(embed=make_embed(self.state), view=self)
+            await refresh_queue(self.state)
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
 
 # ──────────── 🎵  Queue UI ここまで ──────────
@@ -653,15 +754,32 @@ async def cmd_dice(msg: discord.Message, nota: str):
     txt = ", ".join(map(str, rolls))
 
     class Reroll(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=None)
+
+        async def interaction_check(self, itx: discord.Interaction) -> bool:
+            if itx.user.id != msg.author.id:
+                await itx.response.send_message(
+                    "このボタンはコマンドを実行した人だけ使えます！",
+                    ephemeral=True,
+                )
+                return False
+            return True
+
         @discord.ui.button(label="🎲もう一回振る", style=discord.ButtonStyle.primary)
         async def reroll(self, inter: discord.Interaction, btn: discord.ui.Button):
-            if inter.user.id != msg.author.id:
-                await inter.response.send_message("実行者専用ボタンだよ！", ephemeral=True); return
-            new = [random.randint(1, sides) for _ in range(cnt)]
-            await inter.response.edit_message(
-                content=f"🎲 {nota} → {', '.join(map(str,new))} 【合計 {sum(new)}】",
-                view=self
-            )
+            try:
+                new = [random.randint(1, sides) for _ in range(cnt)]
+                await inter.response.edit_message(
+                    content=f"🎲 {nota} → {', '.join(map(str,new))} 【合計 {sum(new)}】",
+                    view=self
+                )
+            except Exception:
+                await inter.response.send_message(
+                    "⚠️ この操作パネルは無効です。\n"
+                    "もう一度コマンドを実行してね！",
+                    ephemeral=True,
+                )
     await msg.channel.send(f"🎲 {nota} → {txt} 【合計 {total}】", view=Reroll())
 
 import asyncio
@@ -717,7 +835,6 @@ async def cmd_play(msg: discord.Message, query: str):
             await msg.reply(f"添付ファイル取得エラー: {e}")
             return
 
-
     playlist_handled = False
     if args:
         if len(args) == 1 and is_playlist_url(args[0]):
@@ -741,7 +858,6 @@ async def cmd_play(msg: discord.Message, query: str):
     # 再生していなければループを起動
     if state.queue and not voice.is_playing() and not state.play_next.is_set():
         client.loop.create_task(state.player_loop(voice, msg.channel))
-
 
 
 
@@ -923,6 +1039,7 @@ async def cmd_help(msg: discord.Message):
         "**🎵 音楽機能**\n"
         "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリストを追加\n"
         "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop / Leave）\n"
+        "   ※パネルが反応しない場合はもう一度 `y!queue` を実行してね！\n"
         "\n"
         "**💬 翻訳機能**\n"
         "国旗リアクションを付けると、そのメッセージを自動翻訳\n"
