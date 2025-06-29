@@ -1,16 +1,23 @@
-import os, re, time, random, discord, openai, tempfile, logging
+import os, re, time, random, discord, tempfile, logging
 from discord import app_commands
+from openai import OpenAI
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
-with open("token.txt", "r", encoding="utf-8") as f:
-    TOKEN = f.read().strip()
+TOKEN = os.getenv("DISCORD_TOKEN")
+if not TOKEN:
+    with open("token.txt", "r", encoding="utf-8") as f:
+        TOKEN = f.read().strip()
 
-with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
-    openai.api_key = f.read().strip()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
+        OPENAI_API_KEY = f.read().strip()
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ───────────────── Logger ─────────────────
 handler = RotatingFileHandler('bot.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
@@ -1056,17 +1063,17 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 
         resp = await loop.run_in_executor(
             None,
-            lambda: openai.chat.completions.create(
+            lambda: openai_client.responses.create(
                 model="gpt-4.1",
-                messages=[{"role": "user", "content": prompt}],
                 tools=[
                     {"type": "web_search_preview"},
-                    {"type": "code_interpreter", "container": {"type": "auto"}}
+                    {"type": "code_interpreter", "container": {"type": "auto"}},
                 ],
-                temperature=0.7
+                input=prompt,
+                temperature=0.7,
             )
         )
-        ans = resp.choices[0].message.content.strip()
+        ans = resp.output_text.strip()
 
         await msg.channel.send(ans[:1900] + ("…" if len(ans) > 1900 else ""))
     except Exception as e:
@@ -1318,27 +1325,28 @@ async def on_voice_state_update(member, before, after):
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "**🎵 音楽機能**\n"
-        "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリストを追加\n"
-        "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop / Leave）\n"
+        "`y!play` `/play` - 曲やプレイリストを追加\n"
+        "`y!queue` `/queue` - キュー表示＆操作 (Skip / Shuffle / Pause / Resume / Loop / Leave)\n"
         "   ※パネルが反応しない場合はもう一度 `y!queue` を実行してね！\n"
         "\n"
         "**💬 翻訳機能**\n"
         "国旗リアクションを付けると、そのメッセージを自動翻訳\n"
         "\n"
         "**🤖 AI/ツール**\n"
-        "`y? <質問>` - ChatGPT-4.1 (Web検索 & コード実行対応)\n"
+        "`y? <質問>` `/gpt <質問>` - GPT-4.1 が Web検索 & Python 実行で回答\n"
         "\n"
         "**🧑 ユーザー情報**\n"
-        "`y!user <userid>` - プロフィールを表示\n"
+        "`y!user <id>` `/user <id>` - プロフィールを表示\n"
         "\n"
         "**🕹️ その他**\n"
-        "`y!ping` - 応答速度\n"
-        "`y!say <text>` - エコー\n"
-        "`y!date` - 今日の日時\n"
-        "`y!XdY` - ダイス(例: y!2d6)\n"
-        "`y!purge <n|link>` - メッセージ一括削除\n"
-        "`y!help` - このヘルプ\n"
-        "`y!?`  - 返信で使うと名言化"
+        "`y!ping` `/ping` - 応答速度\n"
+        "`y!say <text>` `/say` - エコー\n"
+        "`y!date` `/date` - 今日の日時\n"
+        "`y!XdY` `/dice` - ダイス(例: 2d6)\n"
+        "`y!purge <n|link>` `/purge` - メッセージ一括削除\n"
+        "`y!help` `/help` - このヘルプ\n"
+        "`y!?` - 返信で使うと名言化\n"
+        "\nGPT-4.1 は Web検索と Code Interpreter を利用します。"
     )
 
 
@@ -1771,22 +1779,16 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     # 5. GPT-4.1 で翻訳
     async with channel.typing():
         try:
-            resp = openai.chat.completions.create(
+            resp = openai_client.responses.create(
                 model="gpt-4.1",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            f"Translate the user's message into {lang}. "
-                            f"The flag emoji is {emoji}. Respond only with the translated text without the emoji."
-                        )
-                    },
-                    {"role": "user", "content": original}
-                ],
-                max_tokens=1000,
+                instructions=(
+                    f"Translate the user's message into {lang}. "
+                    f"The flag emoji is {emoji}. Respond only with the translated text without the emoji."
+                ),
+                input=original,
                 temperature=0.3,
             )
-            translated = resp.choices[0].message.content.strip()
+            translated = resp.output_text.strip()
 
             # 6. Discord 2000 文字制限に合わせて 1 通で送信
             header     = f"💬 **{lang}** translation:\n"
