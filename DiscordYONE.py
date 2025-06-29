@@ -1,4 +1,5 @@
 import os, re, time, random, discord, openai, tempfile, logging
+from discord import app_commands
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 
@@ -33,8 +34,9 @@ intents.message_content = True          # メッセージ内容を取得
 intents.reactions = True 
 intents.members   = True        # 追加
 intents.presences = True 
-intents.voice_states    = True 
+intents.voice_states    = True
 client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
 # ───────────────── 便利関数 ─────────────────
 def parse_cmd(content: str):
@@ -53,6 +55,28 @@ def parse_cmd(content: str):
 
     parts = body.split(maxsplit=1)
     return parts[0].lower(), parts[1] if len(parts) > 1 else ""
+
+
+class SlashMessage:
+    """Wrap discord.Interaction to mimic discord.Message."""
+    def __init__(self, interaction: discord.Interaction):
+        self._itx = interaction
+        self.channel = interaction.channel
+        self.guild = interaction.guild
+        self.author = interaction.user
+        self.attachments: list[discord.Attachment] = []
+
+    async def reply(self, *args, **kwargs):
+        if not self._itx.response.is_done():
+            await self._itx.response.send_message(*args, **kwargs)
+        else:
+            await self._itx.followup.send(*args, **kwargs)
+
+    async def add_reaction(self, emoji):
+        if not self._itx.response.is_done():
+            await self._itx.response.send_message(emoji)
+        else:
+            await self._itx.followup.send(emoji)
 
 
 from yt_dlp import YoutubeDL
@@ -1326,11 +1350,90 @@ from discord import Activity, ActivityType, Status
 @client.event
 async def on_ready():
     await client.change_presence(
-        status=Status.online,                        # ← オンライン表示
+        status=Status.online,
         activity=Activity(type=ActivityType.playing,
                           name="y!help で使い方を見る")
     )
+    try:
+        await tree.sync()
+    except Exception as e:
+        print("Slash command sync failed:", e)
     print("LOGIN:", client.user)
+
+# ----- Slash command wrappers -----
+@tree.command(name="ping", description="Botの応答速度を表示")
+async def sc_ping(itx: discord.Interaction):
+    await cmd_ping(SlashMessage(itx))
+
+
+@tree.command(name="say", description="Botに発言させます")
+@app_commands.describe(text="送信するテキスト")
+async def sc_say(itx: discord.Interaction, text: str):
+    await cmd_say(SlashMessage(itx), text)
+
+
+@tree.command(name="date", description="Unix 時刻をDiscord形式で表示")
+@app_commands.describe(timestamp="Unixタイムスタンプ")
+async def sc_date(itx: discord.Interaction, timestamp: int | None = None):
+    arg = str(timestamp) if timestamp is not None else ""
+    await cmd_date(SlashMessage(itx), arg)
+
+
+@tree.command(name="user", description="ユーザー情報を表示")
+@app_commands.describe(target="ユーザーIDまたはメンション")
+async def sc_user(itx: discord.Interaction, target: str = ""):
+    await cmd_user(SlashMessage(itx), target)
+
+
+@tree.command(name="dice", description="ダイスを振ります")
+@app_commands.describe(nota="(例: 2d6, d20)")
+async def sc_dice(itx: discord.Interaction, nota: str):
+    await cmd_dice(SlashMessage(itx), nota)
+
+
+@tree.command(name="gpt", description="ChatGPT に質問")
+@app_commands.describe(text="質問内容")
+async def sc_gpt(itx: discord.Interaction, text: str):
+    await cmd_gpt(SlashMessage(itx), text)
+
+
+@tree.command(name="play", description="曲を再生キューに追加")
+@app_commands.describe(query="URLや検索キーワード")
+async def sc_play(itx: discord.Interaction, query: str):
+    await cmd_play(SlashMessage(itx), query)
+
+
+@tree.command(name="queue", description="再生キューを表示")
+async def sc_queue(itx: discord.Interaction):
+    await cmd_queue(SlashMessage(itx), "")
+
+
+@tree.command(name="remove", description="キューから曲を削除")
+@app_commands.describe(numbers="削除する番号 (スペース区切り)")
+async def sc_remove(itx: discord.Interaction, numbers: str):
+    await cmd_remove(SlashMessage(itx), numbers)
+
+
+@tree.command(name="keep", description="指定番号以外を削除")
+@app_commands.describe(numbers="残す番号 (スペース区切り)")
+async def sc_keep(itx: discord.Interaction, numbers: str):
+    await cmd_keep(SlashMessage(itx), numbers)
+
+
+@tree.command(name="purge", description="メッセージを一括削除")
+@app_commands.describe(arg="削除数またはメッセージリンク")
+async def sc_purge(itx: discord.Interaction, arg: str):
+    await cmd_purge(SlashMessage(itx), arg)
+
+
+@tree.command(name="stop", description="VC から退出")
+async def sc_stop(itx: discord.Interaction):
+    await cmd_stop(SlashMessage(itx), "")
+
+
+@tree.command(name="help", description="コマンド一覧を表示")
+async def sc_help(itx: discord.Interaction):
+    await cmd_help(SlashMessage(itx))
 
 # ------------ 翻訳リアクション機能ここから ------------
 
