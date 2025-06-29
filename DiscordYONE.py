@@ -135,6 +135,10 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
     entries = info.get("entries", [])
     await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
     for ent in entries:
+        if task and task.cancelled():
+            break
+        if not voice.is_connected():
+            break
         url = ent.get("url")
         if not url:
             continue
@@ -258,6 +262,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
     """プレイリストの曲を逐次取得してキューへ追加"""
+    task = asyncio.current_task()
     qs = parse_qs(urlparse(playlist_url).query)
     list_id = qs.get("list", [None])[0]
     if list_id:
@@ -335,6 +340,9 @@ class MusicState:
         self.play_next = asyncio.Event()
         self.queue_msg: discord.Message | None = None
         self.start_time: float | None = None
+        self.pause_offset: float = 0.0
+        self.is_paused: bool = False
+        self.playlist_task: asyncio.Task | None = None
 
     async def player_loop(self, voice: discord.VoiceClient, channel: discord.TextChannel):
         """
@@ -356,6 +364,8 @@ class MusicState:
             # 再生準備
             self.current = self.queue[0]
             title, url = self.current.title, self.current.url
+            self.is_paused = False
+            self.pause_offset = 0
 
             before_opts = (
                 "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
@@ -612,7 +622,10 @@ def make_embed(state: "MusicState") -> discord.Embed:
     if state.current:
         emb.add_field(name="▶️ Now Playing:", value=state.current.title, inline=False)
         if state.start_time is not None and state.current.duration:
-            pos = int(time.time() - state.start_time)
+            if state.is_paused:
+                pos = int(state.pause_offset)
+            else:
+                pos = int(time.time() - state.start_time)
             pos = max(0, min(pos, state.current.duration))
             bar = make_bar(pos, state.current.duration)
             emb.add_field(
@@ -704,8 +717,15 @@ class ControlView(discord.ui.View):
         try:
             if self.vc.is_playing():
                 self.vc.pause()
+                self.state.is_paused = True
+                if self.state.start_time is not None:
+                    self.state.pause_offset = time.time() - self.state.start_time
             elif self.vc.is_paused():
                 self.vc.resume()
+                self.state.is_paused = False
+                if self.state.start_time is not None:
+                    self.state.start_time = time.time() - self.state.pause_offset
+            await refresh_queue(self.state)
             await itx.response.defer()
         except Exception:
             await itx.response.send_message(
@@ -766,7 +786,9 @@ class RemoveButton(discord.ui.Button):
         tr = list(view.state.queue)[self.index - 1]
         del view.state.queue[self.index - 1]
         cleanup_track(tr)
-        await interaction.response.edit_message(embed=make_embed(view.state), view=view)
+        new_view = QueueRemoveView(view.state, view.vc, view.owner_id)
+        await interaction.response.edit_message(embed=make_embed(view.state), view=new_view)
+        view.state.queue_msg = interaction.message
         await refresh_queue(view.state)
 
 
@@ -990,6 +1012,10 @@ async def cmd_play(msg: discord.Message, query: str):
 
     state = guild_states.setdefault(msg.guild.id, MusicState())
 
+    if state.playlist_task and not state.playlist_task.done():
+        state.playlist_task.cancel()
+        state.playlist_task = None
+
     tracks: list[Track] = []
 
     if attachments:
@@ -1003,7 +1029,9 @@ async def cmd_play(msg: discord.Message, query: str):
     playlist_handled = False
     if args:
         if len(args) == 1 and is_playlist_url(args[0]):
-            client.loop.create_task(add_playlist_lazy(state, args[0], voice, msg.channel))
+            state.playlist_task = client.loop.create_task(
+                add_playlist_lazy(state, args[0], voice, msg.channel)
+            )
             playlist_handled = True
         else:
             url_tracks = yt_extract_multiple(args)
@@ -1033,6 +1061,8 @@ async def cmd_stop(msg: discord.Message, _):
         await vc.disconnect()
     state = guild_states.pop(msg.guild.id, None)
     if state:
+        if state.playlist_task and not state.playlist_task.done():
+            state.playlist_task.cancel()
         cleanup_track(state.current)
         for tr in state.queue:
             cleanup_track(tr)
@@ -1188,6 +1218,8 @@ async def on_voice_state_update(member, before, after):
         finally:
             st = guild_states.pop(member.guild.id, None)
             if st:
+                if st.playlist_task and not st.playlist_task.done():
+                    st.playlist_task.cancel()
                 cleanup_track(st.current)
                 for tr in st.queue:
                     cleanup_track(tr)
