@@ -691,7 +691,9 @@ class ControlView(discord.ui.View):
         try:
             if self.vc.is_playing():
                 self.vc.stop()
-            await itx.response.defer()
+            new_view = QueueRemoveView(self.state, self.vc, self.owner_id)
+            await itx.response.edit_message(embed=make_embed(self.state), view=new_view)
+            self.state.queue_msg = itx.message
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -703,8 +705,9 @@ class ControlView(discord.ui.View):
     async def _shuffle(self, itx: discord.Interaction, _: discord.ui.Button):
         try:
             random.shuffle(self.state.queue)
-            await refresh_queue(self.state)
-            await itx.response.defer()
+            new_view = QueueRemoveView(self.state, self.vc, self.owner_id)
+            await itx.response.edit_message(embed=make_embed(self.state), view=new_view)
+            self.state.queue_msg = itx.message
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -725,8 +728,9 @@ class ControlView(discord.ui.View):
                 self.state.is_paused = False
                 if self.state.start_time is not None:
                     self.state.start_time = time.time() - self.state.pause_offset
-            await refresh_queue(self.state)
-            await itx.response.defer()
+            new_view = QueueRemoveView(self.state, self.vc, self.owner_id)
+            await itx.response.edit_message(embed=make_embed(self.state), view=new_view)
+            self.state.queue_msg = itx.message
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -740,7 +744,7 @@ class ControlView(discord.ui.View):
             self.state.loop = (self.state.loop + 1) % 3
             self._update_labels()
             await itx.response.edit_message(embed=make_embed(self.state), view=self)
-            await refresh_queue(self.state)
+            self.state.queue_msg = itx.message
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -754,7 +758,7 @@ class ControlView(discord.ui.View):
             self.state.auto_leave = not self.state.auto_leave
             self._update_labels()
             await itx.response.edit_message(embed=make_embed(self.state), view=self)
-            await refresh_queue(self.state)
+            self.state.queue_msg = itx.message
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -777,14 +781,16 @@ class RemoveButton(discord.ui.Button):
                 ephemeral=True,
             )
             return
-        if self.index - 1 >= len(view.state.queue):
+        base = 1 if view.state.current and view.state.current in view.state.queue else 0
+        remove_index = base + self.index - 1
+        if remove_index >= len(view.state.queue):
             await interaction.response.send_message(
                 "⚠️ この操作パネルは無効です。\n`y!queue` で再表示してね！",
                 ephemeral=True,
             )
             return
-        tr = list(view.state.queue)[self.index - 1]
-        del view.state.queue[self.index - 1]
+        tr = list(view.state.queue)[remove_index]
+        del view.state.queue[remove_index]
         cleanup_track(tr)
         new_view = QueueRemoveView(view.state, view.vc, view.owner_id)
         await interaction.response.edit_message(embed=make_embed(view.state), view=new_view)
@@ -795,8 +801,10 @@ class RemoveButton(discord.ui.Button):
 class QueueRemoveView(ControlView):
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
         super().__init__(state, vc, owner_id)
-        for i in range(1, min(11, len(state.queue) + 1)):
-            self.add_item(RemoveButton(i))
+        qlen = len(state.queue) - (1 if state.current and state.current in state.queue else 0)
+        if qlen > 0:
+            for i in range(1, min(11, qlen + 1)):
+                self.add_item(RemoveButton(i))
 
 
 # ──────────── 🎵  Queue UI ここまで ──────────
@@ -812,6 +820,15 @@ async def cmd_queue(msg: discord.Message, _):
         await msg.reply("キューは空だよ！"); return
     vc   = msg.guild.voice_client
     view = QueueRemoveView(state, vc, msg.author.id)
+    if state.queue_msg:
+        try:
+            await state.queue_msg.edit(embed=make_embed(state), view=view)
+            return
+        except Exception:
+            try:
+                await state.queue_msg.delete()
+            except Exception:
+                pass
     state.queue_msg = await msg.channel.send(embed=make_embed(state), view=view)
 
 
