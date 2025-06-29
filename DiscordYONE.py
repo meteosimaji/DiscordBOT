@@ -96,7 +96,6 @@ def cleanup_track(track: Track | None):
         except Exception as e:
             print(f"cleanup failed for {track.url}: {e}")
 
-
 def parse_message_link(link: str) -> tuple[int, int, int] | None:
     """Discord メッセージリンクを guild, channel, message ID に分解"""
     m = re.search(r"discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)", link)
@@ -625,7 +624,6 @@ async def cmd_stop(msg: discord.Message, _):
         for tr in state.queue:
             cleanup_track(tr)
     await msg.add_reaction("⏹️")
-
 
 async def cmd_purge(msg: discord.Message, arg: str):
     """指定数またはリンク以降のメッセージを一括削除"""
