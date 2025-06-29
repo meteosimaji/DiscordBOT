@@ -1,4 +1,5 @@
 import os, re, time, random, discord, openai, tempfile
+from urllib.parse import urlparse, parse_qs
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
@@ -87,6 +88,45 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
         except Exception as e:
             print(f"取得失敗 ({url}): {e}")
     return tracks
+
+
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
 
 
 def cleanup_track(track: Track | None):
@@ -603,22 +643,28 @@ async def cmd_play(msg: discord.Message, query: str):
             await msg.reply(f"添付ファイル取得エラー: {e}")
             return
 
+    playlist_handled = False
     if args:
-        url_tracks = yt_extract_multiple(args)
-        if not url_tracks:
-            await msg.reply("URLから曲を取得できませんでした。")
-        tracks += url_tracks
+        if len(args) == 1 and is_playlist_url(args[0]):
+            client.loop.create_task(add_playlist_lazy(state, args[0], voice, msg.channel))
+            playlist_handled = True
+        else:
+            url_tracks = yt_extract_multiple(args)
+            if not url_tracks:
+                await msg.reply("URLから曲を取得できませんでした。")
+            tracks += url_tracks
 
-    if not tracks:
+    if not tracks and not playlist_handled:
         return
 
-    state.queue.extend(tracks)
-    await refresh_queue(state)
-    await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
+    if tracks:
+        state.queue.extend(tracks)
+        await refresh_queue(state)
+        await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
 
 
     # 再生していなければループを起動
-    if not voice.is_playing() and not state.play_next.is_set():
+    if state.queue and not voice.is_playing() and not state.play_next.is_set():
         client.loop.create_task(state.player_loop(voice, msg.channel))
 
 
