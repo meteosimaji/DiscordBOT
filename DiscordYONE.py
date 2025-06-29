@@ -712,6 +712,7 @@ class ControlView(discord.ui.View):
             new_view = QueueRemoveView(self.state, self.vc, self.owner_id)
             await itx.response.edit_message(embed=make_embed(self.state), view=new_view)
             self.state.queue_msg = itx.message
+
             self.state.panel_owner = self.owner_id
         except Exception:
             await itx.response.send_message(
@@ -727,7 +728,9 @@ class ControlView(discord.ui.View):
             new_view = QueueRemoveView(self.state, self.vc, self.owner_id)
             await itx.response.edit_message(embed=make_embed(self.state), view=new_view)
             self.state.queue_msg = itx.message
+
             self.state.panel_owner = self.owner_id
+
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -751,7 +754,9 @@ class ControlView(discord.ui.View):
             new_view = QueueRemoveView(self.state, self.vc, self.owner_id)
             await itx.response.edit_message(embed=make_embed(self.state), view=new_view)
             self.state.queue_msg = itx.message
+
             self.state.panel_owner = self.owner_id
+
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -762,11 +767,13 @@ class ControlView(discord.ui.View):
     @discord.ui.button(label="🔁 Loop: OFF", style=discord.ButtonStyle.success)
     async def loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
         try:
+
             self.state.loop = (self.state.loop + 1) % 3
             self._update_labels()
             await itx.response.edit_message(embed=make_embed(self.state), view=self)
             self.state.queue_msg = itx.message
             self.state.panel_owner = self.owner_id
+
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -777,11 +784,13 @@ class ControlView(discord.ui.View):
     @discord.ui.button(label="👋 Auto Leave: ON", style=discord.ButtonStyle.success)
     async def leave_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
         try:
+
             self.state.auto_leave = not self.state.auto_leave
             self._update_labels()
             await itx.response.edit_message(embed=make_embed(self.state), view=self)
             self.state.queue_msg = itx.message
             self.state.panel_owner = self.owner_id
+
         except Exception:
             await itx.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
@@ -825,11 +834,13 @@ class RemoveButton(discord.ui.Button):
 class QueueRemoveView(ControlView):
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
         super().__init__(state, vc, owner_id)
+
         qlist = list(state.queue)
         if state.current in qlist:
             qlist.remove(state.current)
         for i, _ in enumerate(qlist[:10], 1):
             self.add_item(RemoveButton(i))
+
 
 
 # ──────────── 🎵  Queue UI ここまで ──────────
@@ -847,9 +858,11 @@ async def cmd_queue(msg: discord.Message, _):
     view = QueueRemoveView(state, vc, msg.author.id)
     if state.queue_msg:
         try:
+
             await state.queue_msg.delete()
         except Exception:
             pass
+
     state.queue_msg = await msg.channel.send(embed=make_embed(state), view=view)
     state.panel_owner = msg.author.id
 
