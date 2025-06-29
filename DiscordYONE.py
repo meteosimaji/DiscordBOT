@@ -76,6 +76,7 @@ class _SlashChannel:
         else:
             await self._itx.followup.send(*args, **kwargs)
 
+
     def typing(self):
         return self._channel.typing()
 
@@ -83,12 +84,12 @@ class _SlashChannel:
 class SlashMessage:
     """Wrap discord.Interaction to mimic discord.Message."""
 
-    def __init__(self, interaction: discord.Interaction):
+    def __init__(self, interaction: discord.Interaction, attachments: list[discord.Attachment] | None = None):
         self._itx = interaction
         self.channel = _SlashChannel(interaction)
         self.guild = interaction.guild
         self.author = interaction.user
-        self.attachments: list[discord.Attachment] = list(interaction.attachments)
+        self.attachments: list[discord.Attachment] = attachments or []
 
     async def reply(self, *args, **kwargs):
         await self.channel.send(*args, **kwargs)
@@ -1336,7 +1337,7 @@ async def on_voice_state_update(member, before, after):
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "**🎵 音楽機能**\n"
-        "`y!play` `/play` - 曲やプレイリストを追加\n"
+        "`y!play` `/play` - 曲やプレイリストを追加 (スラッシュ版は file: 引数で添付)\n"
         "`y!queue` `/queue` - キュー表示＆操作 (Skip / Shuffle / Pause / Resume / Loop / Leave)\n"
         "   ※パネルが反応しない場合はもう一度 `y!queue` を実行してね！\n"
         "\n"
@@ -1357,7 +1358,14 @@ async def cmd_help(msg: discord.Message):
         "`y!purge <n|link>` `/purge` - メッセージ一括削除\n"
         "`y!help` `/help` - このヘルプ\n"
         "`y!?` - 返信で使うと名言化\n"
-        "\nGPT-4.1 は Web検索と Code Interpreter を利用します。"
+        "\n"
+        "■ Slash Commands\n"
+        "/ping [file] … Ping を返します（オプションでファイル添付可能）\n"
+        "/date        … 現在日時を表示\n"
+        "例: /ping\n"
+        "例: /ping file:<アップロードするファイル>\n"
+        "\nテキストコマンドではメッセージにファイルを直接添付してください。\n"
+        "GPT-4.1 は Web検索と Code Interpreter を利用します。"
     )
 
 
@@ -1382,90 +1390,154 @@ async def on_ready():
 # ----- Slash command wrappers -----
 @tree.command(name="ping", description="Botの応答速度を表示")
 async def sc_ping(itx: discord.Interaction):
-    await itx.response.defer()
-    await cmd_ping(SlashMessage(itx))
+
+    try:
+        await itx.response.defer()
+        await cmd_ping(SlashMessage(itx))
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="say", description="Botに発言させます")
 @app_commands.describe(text="送信するテキスト")
 async def sc_say(itx: discord.Interaction, text: str):
-    await itx.response.defer()
-    await cmd_say(SlashMessage(itx), text)
+
+    try:
+        await itx.response.defer()
+        await cmd_say(SlashMessage(itx), text)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="date", description="Unix 時刻をDiscord形式で表示")
 @app_commands.describe(timestamp="Unixタイムスタンプ")
 async def sc_date(itx: discord.Interaction, timestamp: int | None = None):
-    await itx.response.defer()
-    arg = str(timestamp) if timestamp is not None else ""
-    await cmd_date(SlashMessage(itx), arg)
+
+    try:
+        await itx.response.defer()
+        arg = str(timestamp) if timestamp is not None else ""
+        await cmd_date(SlashMessage(itx), arg)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="user", description="ユーザー情報を表示")
 @app_commands.describe(target="ユーザーIDまたはメンション")
 async def sc_user(itx: discord.Interaction, target: str = ""):
-    await itx.response.defer()
-    await cmd_user(SlashMessage(itx), target)
+
+    try:
+        await itx.response.defer()
+        await cmd_user(SlashMessage(itx), target)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="dice", description="ダイスを振ります")
 @app_commands.describe(nota="(例: 2d6, d20)")
 async def sc_dice(itx: discord.Interaction, nota: str):
-    await itx.response.defer()
-    await cmd_dice(SlashMessage(itx), nota)
+
+    try:
+        await itx.response.defer()
+        await cmd_dice(SlashMessage(itx), nota)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="gpt", description="ChatGPT に質問")
 @app_commands.describe(text="質問内容")
 async def sc_gpt(itx: discord.Interaction, text: str):
-    await itx.response.defer()
-    await cmd_gpt(SlashMessage(itx), text)
+
+    try:
+        await itx.response.defer()
+        await cmd_gpt(SlashMessage(itx), text)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
 
 
 @tree.command(name="play", description="曲を再生キューに追加")
-@app_commands.describe(query="URLや検索キーワード")
-async def sc_play(itx: discord.Interaction, query: str):
-    await itx.response.defer()
-    await cmd_play(SlashMessage(itx), query)
+@app_commands.describe(query="URLや検索キーワード", file="(任意)添付ファイル")
+async def sc_play(itx: discord.Interaction, query: str, file: discord.Attachment | None = None):
+    try:
+        await itx.response.defer()
+        msg = SlashMessage(itx, [file] if file else [])
+        await cmd_play(msg, query)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="queue", description="再生キューを表示")
 async def sc_queue(itx: discord.Interaction):
-    await itx.response.defer()
-    await cmd_queue(SlashMessage(itx), "")
+
+    try:
+        await itx.response.defer()
+        await cmd_queue(SlashMessage(itx), "")
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="remove", description="キューから曲を削除")
 @app_commands.describe(numbers="削除する番号 (スペース区切り)")
 async def sc_remove(itx: discord.Interaction, numbers: str):
-    await itx.response.defer()
-    await cmd_remove(SlashMessage(itx), numbers)
+
+    try:
+        await itx.response.defer()
+        await cmd_remove(SlashMessage(itx), numbers)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="keep", description="指定番号以外を削除")
 @app_commands.describe(numbers="残す番号 (スペース区切り)")
 async def sc_keep(itx: discord.Interaction, numbers: str):
-    await itx.response.defer()
-    await cmd_keep(SlashMessage(itx), numbers)
+
+    try:
+        await itx.response.defer()
+        await cmd_keep(SlashMessage(itx), numbers)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="purge", description="メッセージを一括削除")
 @app_commands.describe(arg="削除数またはメッセージリンク")
 async def sc_purge(itx: discord.Interaction, arg: str):
-    await itx.response.defer()
-    await cmd_purge(SlashMessage(itx), arg)
+
+    try:
+        await itx.response.defer()
+        await cmd_purge(SlashMessage(itx), arg)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="stop", description="VC から退出")
 async def sc_stop(itx: discord.Interaction):
-    await itx.response.defer()
-    await cmd_stop(SlashMessage(itx), "")
+
+    try:
+        await itx.response.defer()
+        await cmd_stop(SlashMessage(itx), "")
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 
 @tree.command(name="help", description="コマンド一覧を表示")
 async def sc_help(itx: discord.Interaction):
-    await itx.response.defer()
-    await cmd_help(SlashMessage(itx))
+
+    try:
+        await itx.response.defer()
+        await cmd_help(SlashMessage(itx))
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
 
 # ------------ 翻訳リアクション機能ここから ------------
 
