@@ -1,4 +1,4 @@
-import os, re, time, random, discord, openai, tempfile
+import os, re, time, random, discord, openai, tempfile, uuid
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
@@ -48,6 +48,9 @@ class Track:
     url: str
     duration: int | None = None
 
+AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac"}
+TEMP_DIR = tempfile.gettempdir()
+
 def yt_extract(url_or_term: str) -> list[Track]:
     """URL か検索語から Track 一覧を返す (単曲の場合は長さ1)"""
     with YoutubeDL(YTDL_OPTS) as ydl:
@@ -81,6 +84,28 @@ def num_emoji(n: int) -> str:
     emojis = ["0️⃣","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
     return emojis[n] if 0 <= n < len(emojis) else str(n)
 
+async def attachment_to_track(att: discord.Attachment) -> Track:
+    """添付ファイルを保存して Track に変換"""
+    ext = os.path.splitext(att.filename)[1].lower()
+    name = f"{uuid.uuid4().hex}{ext}"
+    path = os.path.join(TEMP_DIR, name)
+    await att.save(path)
+    return Track(att.filename, path, None)
+
+def cleanup_track(track: Track):
+    """一時ファイルであれば削除"""
+    if track.url.startswith(TEMP_DIR):
+        try:
+            os.remove(track.url)
+        except FileNotFoundError:
+            pass
+
+def cleanup_state(state: "MusicState"):
+    if state.current:
+        cleanup_track(state.current)
+    while state.queue:
+        cleanup_track(state.queue.popleft())
+
 class MusicState:
     def __init__(self):
         self.queue   = collections.deque()   # 再生待ち Track 一覧
@@ -106,6 +131,8 @@ class MusicState:
                 if not self.queue:
                     await voice.disconnect()
                     self.queue_msg = None
+                    cleanup_state(self)
+                    guild_states.pop(voice.guild.id, None)
                     return
 
             # 再生準備
@@ -132,11 +159,17 @@ class MusicState:
             progress_task.cancel()
             self.start_time = None
 
+            finished = self.current
             # ループOFFなら再生し終えた曲をキューから外す
             if self.loop == 0 and self.queue:
-                self.queue.popleft()
+                popped = self.queue.popleft()
+                cleanup_track(popped)
             elif self.loop == 2 and self.queue:
                 self.queue.rotate(-1)
+
+            # 使い終えた一時ファイルを除去
+            if finished and finished not in self.queue:
+                cleanup_track(finished)
 
 # クラス外でOK
 async def refresh_queue(state: "MusicState"):
@@ -534,7 +567,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 async def cmd_play(msg: discord.Message, query: str):
     """曲をキューに追加して再生を開始"""
     if not query:
-        await msg.reply("`y!play <URL または 検索語>` の形式で使ってね！")
+        await msg.reply("`y!play <URL または 検索語>` + optional attachments で使ってね！")
         return
 
     voice = await ensure_voice(msg)
@@ -550,12 +583,26 @@ async def cmd_play(msg: discord.Message, query: str):
         await msg.reply(f"🔍 取得失敗: {e}")
         return
 
+    # 添付ファイルもキューへ追加
+    ignored = []
+    for att in msg.attachments:
+        ext = os.path.splitext(att.filename)[1].lower()
+        if ext in AUDIO_EXTS:
+            tr = await attachment_to_track(att)
+            tracks.append(tr)
+        else:
+            ignored.append(att.filename)
+
     state.queue.extend(tracks)
     await refresh_queue(state)
+
     if len(tracks) == 1:
         await msg.channel.send(f"⏱️ **Queued**: {tracks[0].title}")
     else:
         await msg.channel.send(f"⏱️ Added {len(tracks)} tracks to queue")
+
+    if ignored:
+        await msg.channel.send("Ignored files: " + ", ".join(ignored))
 
     # 再生していなければループを起動
     if not voice.is_playing() and not state.play_next.is_set():
@@ -566,7 +613,9 @@ async def cmd_stop(msg: discord.Message, _):
     """Bot を VC から切断し、キュー初期化"""
     if vc := msg.guild.voice_client:
         await vc.disconnect()
-    guild_states.pop(msg.guild.id, None)
+    state = guild_states.pop(msg.guild.id, None)
+    if state:
+        cleanup_state(state)
     await msg.add_reaction("⏹️")
 
 
@@ -587,12 +636,14 @@ async def on_voice_state_update(member, before, after):
         try:
             await voice.disconnect()
         finally:
-            guild_states.pop(member.guild.id, None)
+            st = guild_states.pop(member.guild.id, None)
+            if st:
+                cleanup_state(st)
 
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "**🎵 音楽機能**\n"
-        "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリストを追加\n"
+        "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリスト、添付音声を追加\n"
         "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop / Leave）\n"
         "\n"
         "**💬 翻訳機能**\n"
