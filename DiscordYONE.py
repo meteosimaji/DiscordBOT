@@ -14,6 +14,17 @@ with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# チャンネル型の許可タプル (Text / Thread / Stage)
+MESSAGE_CHANNEL_TYPES: tuple[type, ...] = (
+    discord.TextChannel,
+    discord.Thread,
+    discord.StageChannel,
+)
+
+# ───────────────── Logger ─────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ───────────────── Logger ─────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -97,6 +108,50 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
         except Exception as e:
             print(f"取得失敗 ({url}): {e}")
     return tracks
+
+
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+def is_http_source(path_or_url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return path_or_url.startswith(("http://", "https://"))
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
 
 
 def is_playlist_url(url: str) -> bool:
@@ -326,6 +381,7 @@ class MusicState:
 
 
 
+
             # チャット通知 & Embed 更新
             await channel.send(f"▶️ **Now playing**: {title}")
             await refresh_queue(self)
@@ -406,6 +462,7 @@ async def make_quote_image(user, text, color=False) -> pathlib.Path:
     return path
 
 # ──────────── ボタン付き View ────────────
+
 class QuoteView(discord.ui.View):
     def __init__(self, invoker: discord.User, payload: dict):
         super().__init__(timeout=None)
@@ -422,12 +479,14 @@ class QuoteView(discord.ui.View):
             return False
         return True
 
+
     async def _regen(self, interaction: discord.Interaction):
         path = await make_quote_image(**self.payload)
         await interaction.response.edit_message(
             attachments=[discord.File(path, filename=path.name)],
             view=self
         )
+
 
     @discord.ui.button(label="🎨 カラー", style=discord.ButtonStyle.success)
     async def btn_color(self, inter: discord.Interaction, _):
@@ -452,6 +511,7 @@ class QuoteView(discord.ui.View):
                 "`y!queue` で新しいパネルを表示してね！",
                 ephemeral=True,
             )
+
 
 # ──────────── 🎵  VCユーティリティ ────────────
 guild_states: dict[int, "MusicState"] = {}
@@ -521,6 +581,7 @@ def make_embed(state: "MusicState") -> discord.Embed:
     emb.set_footer(text=footer)
     return emb
 
+
 class ControlView(discord.ui.View):
     """再生操作やループ・自動退出の切替ボタンをまとめた View"""
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
@@ -528,11 +589,13 @@ class ControlView(discord.ui.View):
         self.state, self.vc, self.owner_id = state, vc, owner_id
         self._update_labels()
 
+
     def _update_labels(self):
         """各ボタンの表示を現在の状態に合わせて更新"""
         labels = {0: "OFF", 1: "Song", 2: "Queue"}
         self.loop_toggle.label = f"🔁 Loop: {labels[self.state.loop]}"
         self.leave_toggle.label = f"👋 Auto Leave: {'ON' if self.state.auto_leave else 'OFF'}"
+
 
     async def interaction_check(self, itx: discord.Interaction) -> bool:
         if itx.user.id != self.owner_id:
@@ -612,6 +675,7 @@ class ControlView(discord.ui.View):
                 "`y!queue` で新しいパネルを表示してね！",
                 ephemeral=True,
             )
+
 
 
 # ──────────── 🎵  Queue UI ここまで ──────────
@@ -780,6 +844,7 @@ async def cmd_dice(msg: discord.Message, nota: str):
                     "もう一度コマンドを実行してね！",
                     ephemeral=True,
                 )
+
     await msg.channel.send(f"🎲 {nota} → {txt} 【合計 {total}】", view=Reroll())
 
 import asyncio
@@ -835,6 +900,7 @@ async def cmd_play(msg: discord.Message, query: str):
             await msg.reply(f"添付ファイル取得エラー: {e}")
             return
 
+
     playlist_handled = False
     if args:
         if len(args) == 1 and is_playlist_url(args[0]):
@@ -861,6 +927,7 @@ async def cmd_play(msg: discord.Message, query: str):
 
 
 
+
 async def cmd_stop(msg: discord.Message, _):
     """Bot を VC から切断し、キュー初期化"""
     if vc := msg.guild.voice_client:
@@ -879,7 +946,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
         await msg.reply("サーバー内でのみ使用できます。")
         return
 
-    target_channel: discord.TextChannel = msg.channel
+    target_channel: discord.abc.GuildChannel = msg.channel
     target_message: discord.Message | None = None
     arg = arg.strip()
     if not arg:
@@ -898,82 +965,20 @@ async def cmd_purge(msg: discord.Message, arg: str):
             await msg.reply("このサーバーのメッセージリンクを指定してね！")
             return
         ch = msg.guild.get_channel(cid)
-        if ch is None or not isinstance(ch, discord.TextChannel):
-            await msg.reply("リンク先チャンネルが見つかりません。")
+        if ch is None or not isinstance(ch, MESSAGE_CHANNEL_TYPES):
+            await msg.reply(
+                f"リンク先チャンネルが見つかりません (取得型: {type(ch).__name__ if ch else 'None'})。"
+            )
             return
         target_channel = ch
-        try:
-            target_message = await ch.fetch_message(mid)
-        except discord.NotFound:
-            await msg.reply("指定したメッセージが見つかりませんでした。")
-            return
-        limit = None
-
-    # 権限チェック
-    perms_user = target_channel.permissions_for(msg.author)
-    perms_bot = target_channel.permissions_for(msg.guild.me)
-    if not (perms_user.manage_messages and perms_bot.manage_messages):
-        await msg.reply("管理メッセージ権限が足りません。")
-        return
-
-    deleted_total = 0
-    try:
-        if target_message is None:
-            deleted = await target_channel.purge(limit=limit)
-            deleted_total = len(deleted)
-        else:
-            after = target_message
-            while True:
-                batch = await target_channel.purge(after=after, limit=100)
-                if not batch:
-                    break
-                deleted_total += len(batch)
-                after = batch[-1]
+        if isinstance(ch, (discord.TextChannel, discord.Thread)):
             try:
-                await target_message.delete()
-                deleted_total += 1
-            except discord.HTTPException:
-                pass
-    except discord.Forbidden:
-        await msg.reply("権限不足で削除できませんでした。")
-        return
-
-    await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
-
-
-async def cmd_purge(msg: discord.Message, arg: str):
-    """指定数またはリンク以降のメッセージを一括削除"""
-    if not msg.guild:
-        await msg.reply("サーバー内でのみ使用できます。")
-        return
-
-    target_channel: discord.TextChannel = msg.channel
-    target_message: discord.Message | None = None
-    arg = arg.strip()
-    if not arg:
-        await msg.reply("`y!purge <数>` または `y!purge <メッセージリンク>` の形式で指定してね！")
-        return
-
-    if arg.isdigit():
-        limit = min(int(arg), 1000)
-    else:
-        ids = parse_message_link(arg)
-        if not ids:
-            await msg.reply("形式が正しくないよ！")
-            return
-        gid, cid, mid = ids
-        if gid != msg.guild.id:
-            await msg.reply("このサーバーのメッセージリンクを指定してね！")
-            return
-        ch = msg.guild.get_channel(cid)
-        if ch is None or not isinstance(ch, discord.TextChannel):
-            await msg.reply("リンク先チャンネルが見つかりません。")
-            return
-        target_channel = ch
-        try:
-            target_message = await ch.fetch_message(mid)
-        except discord.NotFound:
-            await msg.reply("指定したメッセージが見つかりませんでした。")
+                target_message = await ch.fetch_message(mid)
+            except discord.NotFound:
+                await msg.reply("指定メッセージが存在しません。")
+                return
+        else:
+            await msg.reply("このチャンネル型では purge が未対応です。")
             return
         limit = None
 
