@@ -1,4 +1,5 @@
-import os, re, time, random, discord, openai, tempfile
+import os, re, time, random, discord, openai, tempfile, logging
+from urllib.parse import urlparse, parse_qs
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
@@ -7,6 +8,17 @@ with open("token.txt", "r", encoding="utf-8") as f:
 
 with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
     openai.api_key = f.read().strip()
+
+# ───────────────── Logger ─────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# チャンネル型の許可タプル (Text / Thread / Stage)
+MESSAGE_CHANNEL_TYPES: tuple[type, ...] = (
+    discord.TextChannel,
+    discord.Thread,
+    discord.StageChannel,
+)
 
 # ───────────────── Discord 初期化 ─────────────────
 intents = discord.Intents.default()
@@ -89,6 +101,50 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
     return tracks
 
 
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+def is_http_source(path_or_url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return path_or_url.startswith(("http://", "https://"))
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
+
+
 def cleanup_track(track: Track | None):
     """ローカルファイルの場合は削除"""
     if track and os.path.exists(track.url):
@@ -155,13 +211,31 @@ class MusicState:
             self.current = self.queue[0]
             title, url = self.current.title, self.current.url
 
-            ffmpeg_audio = discord.FFmpegPCMAudio(
-                source=url,
-                executable="ffmpeg",
-                before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                options='-vn -loglevel warning -af "volume=0.9"'
+            before_opts = (
+                "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+                if is_http_source(url) else ""
             )
-            voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
+            try:
+                ffmpeg_audio = discord.FFmpegPCMAudio(
+                    source=url,
+                    executable="ffmpeg",
+                    before_options=before_opts,
+                    options='-vn -loglevel warning -af "volume=0.9"'
+                )
+                voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
+            except FileNotFoundError:
+                logger.error("ffmpeg executable not found")
+                await channel.send(
+                    "⚠️ **ffmpeg が見つかりません** — サーバーに ffmpeg をインストールして再試行してください。"
+                )
+                cleanup_track(self.queue.popleft())
+                continue
+            except Exception as e:
+                logger.error(f"ffmpeg 再生エラー: {e}")
+                await channel.send(f"⚠️ `{title}` の再生に失敗しました（{e}）")
+                cleanup_track(self.queue.popleft())
+                continue
+
             self.start_time = time.time()
 
             # チャット通知 & Embed 更新
@@ -246,7 +320,7 @@ async def make_quote_image(user, text, color=False) -> pathlib.Path:
 # ──────────── ボタン付き View ────────────
 class QuoteView(discord.ui.View):
     def __init__(self, invoker: discord.User, payload: dict):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.invoker = invoker    # 操作できる人
         self.payload = payload    # {user, text, color}
 
@@ -254,7 +328,8 @@ class QuoteView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker.id:
             await interaction.response.send_message(
-                "作った人しか触れないよ！", ephemeral=True
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
             )
             return False
         return True
@@ -268,13 +343,27 @@ class QuoteView(discord.ui.View):
 
     @discord.ui.button(label="🎨 カラー", style=discord.ButtonStyle.success)
     async def btn_color(self, inter: discord.Interaction, _):
-        self.payload["color"] = True
-        await self._regen(inter)
+        try:
+            self.payload["color"] = True
+            await self._regen(inter)
+        except Exception:
+            await inter.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="⚫ モノクロ", style=discord.ButtonStyle.secondary)
     async def btn_mono(self, inter: discord.Interaction, _):
-        self.payload["color"] = False
-        await self._regen(inter)
+        try:
+            self.payload["color"] = False
+            await self._regen(inter)
+        except Exception:
+            await inter.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
 # ──────────── 🎵  VCユーティリティ ────────────
 guild_states: dict[int, "MusicState"] = {}
@@ -347,7 +436,7 @@ def make_embed(state: "MusicState") -> discord.Embed:
 class ControlView(discord.ui.View):
     """再生操作やループ・自動退出の切替ボタンをまとめた View"""
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.state, self.vc, self.owner_id = state, vc, owner_id
         self._update_labels()
 
@@ -359,44 +448,82 @@ class ControlView(discord.ui.View):
 
     async def interaction_check(self, itx: discord.Interaction) -> bool:
         if itx.user.id != self.owner_id:
-            await itx.response.send_message("🙅 発行者専用ボタンだよ", ephemeral=True)
+            await itx.response.send_message(
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
+            )
             return False
         return True
 
     # --- ボタン定義 ---
     @discord.ui.button(label="⏭ Skip", style=discord.ButtonStyle.primary)
     async def _skip(self, itx: discord.Interaction, _: discord.ui.Button):
-        if self.vc.is_playing():
-            self.vc.stop()
-        await itx.response.defer()
+        try:
+            if self.vc.is_playing():
+                self.vc.stop()
+            await itx.response.defer()
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="🔀 Shuffle", style=discord.ButtonStyle.primary)
     async def _shuffle(self, itx: discord.Interaction, _: discord.ui.Button):
-        random.shuffle(self.state.queue)
-        await refresh_queue(self.state)
-        await itx.response.defer()
+        try:
+            random.shuffle(self.state.queue)
+            await refresh_queue(self.state)
+            await itx.response.defer()
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="⏯ Pause/Resume", style=discord.ButtonStyle.secondary)
     async def _pause_resume(self, itx: discord.Interaction, _: discord.ui.Button):
-        if self.vc.is_playing():
-            self.vc.pause()
-        elif self.vc.is_paused():
-            self.vc.resume()
-        await itx.response.defer()
+        try:
+            if self.vc.is_playing():
+                self.vc.pause()
+            elif self.vc.is_paused():
+                self.vc.resume()
+            await itx.response.defer()
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="🔁 Loop: OFF", style=discord.ButtonStyle.success)
     async def loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
-        self.state.loop = (self.state.loop + 1) % 3
-        self._update_labels()
-        await itx.response.edit_message(embed=make_embed(self.state), view=self)
-        await refresh_queue(self.state)
+        try:
+            self.state.loop = (self.state.loop + 1) % 3
+            self._update_labels()
+            await itx.response.edit_message(embed=make_embed(self.state), view=self)
+            await refresh_queue(self.state)
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="👋 Auto Leave: ON", style=discord.ButtonStyle.success)
     async def leave_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
-        self.state.auto_leave = not self.state.auto_leave
-        self._update_labels()
-        await itx.response.edit_message(embed=make_embed(self.state), view=self)
-        await refresh_queue(self.state)
+        try:
+            self.state.auto_leave = not self.state.auto_leave
+            self._update_labels()
+            await itx.response.edit_message(embed=make_embed(self.state), view=self)
+            await refresh_queue(self.state)
+        except Exception:
+            await itx.response.send_message(
+                "⚠️ この操作パネルは無効です。\n"
+                "`y!queue` で新しいパネルを表示してね！",
+                ephemeral=True,
+            )
 
 
 # ──────────── 🎵  Queue UI ここまで ──────────
@@ -539,15 +666,32 @@ async def cmd_dice(msg: discord.Message, nota: str):
     txt = ", ".join(map(str, rolls))
 
     class Reroll(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=None)
+
+        async def interaction_check(self, itx: discord.Interaction) -> bool:
+            if itx.user.id != msg.author.id:
+                await itx.response.send_message(
+                    "このボタンはコマンドを実行した人だけ使えます！",
+                    ephemeral=True,
+                )
+                return False
+            return True
+
         @discord.ui.button(label="🎲もう一回振る", style=discord.ButtonStyle.primary)
         async def reroll(self, inter: discord.Interaction, btn: discord.ui.Button):
-            if inter.user.id != msg.author.id:
-                await inter.response.send_message("実行者専用ボタンだよ！", ephemeral=True); return
-            new = [random.randint(1, sides) for _ in range(cnt)]
-            await inter.response.edit_message(
-                content=f"🎲 {nota} → {', '.join(map(str,new))} 【合計 {sum(new)}】",
-                view=self
-            )
+            try:
+                new = [random.randint(1, sides) for _ in range(cnt)]
+                await inter.response.edit_message(
+                    content=f"🎲 {nota} → {', '.join(map(str,new))} 【合計 {sum(new)}】",
+                    view=self
+                )
+            except Exception:
+                await inter.response.send_message(
+                    "⚠️ この操作パネルは無効です。\n"
+                    "もう一度コマンドを実行してね！",
+                    ephemeral=True,
+                )
     await msg.channel.send(f"🎲 {nota} → {txt} 【合計 {total}】", view=Reroll())
 
 import asyncio
@@ -603,22 +747,28 @@ async def cmd_play(msg: discord.Message, query: str):
             await msg.reply(f"添付ファイル取得エラー: {e}")
             return
 
+    playlist_handled = False
     if args:
-        url_tracks = yt_extract_multiple(args)
-        if not url_tracks:
-            await msg.reply("URLから曲を取得できませんでした。")
-        tracks += url_tracks
+        if len(args) == 1 and is_playlist_url(args[0]):
+            client.loop.create_task(add_playlist_lazy(state, args[0], voice, msg.channel))
+            playlist_handled = True
+        else:
+            url_tracks = yt_extract_multiple(args)
+            if not url_tracks:
+                await msg.reply("URLから曲を取得できませんでした。")
+            tracks += url_tracks
 
-    if not tracks:
+    if not tracks and not playlist_handled:
         return
 
-    state.queue.extend(tracks)
-    await refresh_queue(state)
-    await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
+    if tracks:
+        state.queue.extend(tracks)
+        await refresh_queue(state)
+        await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
 
 
     # 再生していなければループを起動
-    if not voice.is_playing() and not state.play_next.is_set():
+    if state.queue and not voice.is_playing() and not state.play_next.is_set():
         client.loop.create_task(state.player_loop(voice, msg.channel))
 
 
@@ -641,7 +791,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
         await msg.reply("サーバー内でのみ使用できます。")
         return
 
-    target_channel: discord.TextChannel = msg.channel
+    target_channel: discord.abc.GuildChannel = msg.channel
     target_message: discord.Message | None = None
     arg = arg.strip()
     if not arg:
@@ -660,82 +810,20 @@ async def cmd_purge(msg: discord.Message, arg: str):
             await msg.reply("このサーバーのメッセージリンクを指定してね！")
             return
         ch = msg.guild.get_channel(cid)
-        if ch is None or not isinstance(ch, discord.TextChannel):
-            await msg.reply("リンク先チャンネルが見つかりません。")
+        if ch is None or not isinstance(ch, MESSAGE_CHANNEL_TYPES):
+            await msg.reply(
+                f"リンク先チャンネルが見つかりません (取得型: {type(ch).__name__ if ch else 'None'})。"
+            )
             return
         target_channel = ch
-        try:
-            target_message = await ch.fetch_message(mid)
-        except discord.NotFound:
-            await msg.reply("指定したメッセージが見つかりませんでした。")
-            return
-        limit = None
-
-    # 権限チェック
-    perms_user = target_channel.permissions_for(msg.author)
-    perms_bot = target_channel.permissions_for(msg.guild.me)
-    if not (perms_user.manage_messages and perms_bot.manage_messages):
-        await msg.reply("管理メッセージ権限が足りません。")
-        return
-
-    deleted_total = 0
-    try:
-        if target_message is None:
-            deleted = await target_channel.purge(limit=limit)
-            deleted_total = len(deleted)
-        else:
-            after = target_message
-            while True:
-                batch = await target_channel.purge(after=after, limit=100)
-                if not batch:
-                    break
-                deleted_total += len(batch)
-                after = batch[-1]
+        if isinstance(ch, (discord.TextChannel, discord.Thread)):
             try:
-                await target_message.delete()
-                deleted_total += 1
-            except discord.HTTPException:
-                pass
-    except discord.Forbidden:
-        await msg.reply("権限不足で削除できませんでした。")
-        return
-
-    await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
-
-
-async def cmd_purge(msg: discord.Message, arg: str):
-    """指定数またはリンク以降のメッセージを一括削除"""
-    if not msg.guild:
-        await msg.reply("サーバー内でのみ使用できます。")
-        return
-
-    target_channel: discord.TextChannel = msg.channel
-    target_message: discord.Message | None = None
-    arg = arg.strip()
-    if not arg:
-        await msg.reply("`y!purge <数>` または `y!purge <メッセージリンク>` の形式で指定してね！")
-        return
-
-    if arg.isdigit():
-        limit = min(int(arg), 1000)
-    else:
-        ids = parse_message_link(arg)
-        if not ids:
-            await msg.reply("形式が正しくないよ！")
-            return
-        gid, cid, mid = ids
-        if gid != msg.guild.id:
-            await msg.reply("このサーバーのメッセージリンクを指定してね！")
-            return
-        ch = msg.guild.get_channel(cid)
-        if ch is None or not isinstance(ch, discord.TextChannel):
-            await msg.reply("リンク先チャンネルが見つかりません。")
-            return
-        target_channel = ch
-        try:
-            target_message = await ch.fetch_message(mid)
-        except discord.NotFound:
-            await msg.reply("指定したメッセージが見つかりませんでした。")
+                target_message = await ch.fetch_message(mid)
+            except discord.NotFound:
+                await msg.reply("指定メッセージが存在しません。")
+                return
+        else:
+            await msg.reply("このチャンネル型では purge が未対応です。")
             return
         limit = None
 
@@ -801,6 +889,7 @@ async def cmd_help(msg: discord.Message):
         "**🎵 音楽機能**\n"
         "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリストを追加\n"
         "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop / Leave）\n"
+        "   ※パネルが反応しない場合はもう一度 `y!queue` を実行してね！\n"
         "\n"
         "**💬 翻訳機能**\n"
         "国旗リアクションを付けると、そのメッセージを自動翻訳\n"
