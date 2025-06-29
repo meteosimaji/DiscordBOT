@@ -61,6 +61,40 @@ def yt_extract(url_or_term: str) -> list[Track]:
                 return results
             info = info["entries"][0]
         return [Track(info.get("title", "?"), info.get("url", ""), info.get("duration"))]
+
+
+async def attachment_to_track(att: discord.Attachment) -> Track:
+    """Discord 添付ファイルを一時保存して Track に変換"""
+    fd, path = tempfile.mkstemp(prefix="yone_", suffix=os.path.splitext(att.filename)[1])
+    os.close(fd)
+    await att.save(path)
+    return Track(att.filename, path)
+
+
+async def attachments_to_tracks(attachments: list[discord.Attachment]) -> list[Track]:
+    """複数添付ファイルを並列で Track に変換"""
+    tasks = [attachment_to_track(a) for a in attachments]
+    return await asyncio.gather(*tasks)
+
+
+def yt_extract_multiple(urls: list[str]) -> list[Track]:
+    """複数 URL を順に yt_extract して Track をまとめて返す"""
+    tracks: list[Track] = []
+    for url in urls:
+        try:
+            tracks.extend(yt_extract(url))
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+    return tracks
+
+
+def cleanup_track(track: Track | None):
+    """ローカルファイルの場合は削除"""
+    if track and os.path.exists(track.url):
+        try:
+            os.remove(track.url)
+        except Exception as e:
+            print(f"cleanup failed for {track.url}: {e}")
     
 import asyncio, collections
 
@@ -134,7 +168,8 @@ class MusicState:
 
             # ループOFFなら再生し終えた曲をキューから外す
             if self.loop == 0 and self.queue:
-                self.queue.popleft()
+                finished = self.queue.popleft()
+                cleanup_track(finished)
             elif self.loop == 2 and self.queue:
                 self.queue.rotate(-1)
 
@@ -533,8 +568,10 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 # ──────────── 🎵  コマンド郡 ────────────
 async def cmd_play(msg: discord.Message, query: str):
     """曲をキューに追加して再生を開始"""
-    if not query:
-        await msg.reply("`y!play <URL または 検索語>` の形式で使ってね！")
+    args = query.split()
+    attachments = msg.attachments
+    if not args and not attachments:
+        await msg.reply("URLまたは添付ファイルを指定してね！")
         return
 
     voice = await ensure_voice(msg)
@@ -543,19 +580,27 @@ async def cmd_play(msg: discord.Message, query: str):
 
     state = guild_states.setdefault(msg.guild.id, MusicState())
 
-    # YouTube-DL/yt-dlp 等で URL 抽出
-    try:
-        tracks = yt_extract(query)
-    except Exception as e:
-        await msg.reply(f"🔍 取得失敗: {e}")
+    tracks: list[Track] = []
+
+    if attachments:
+        try:
+            tracks += await attachments_to_tracks(attachments)
+        except Exception as e:
+            await msg.reply(f"添付ファイル取得エラー: {e}")
+            return
+
+    if args:
+        url_tracks = yt_extract_multiple(args)
+        if not url_tracks:
+            await msg.reply("URLから曲を取得できませんでした。")
+        tracks += url_tracks
+
+    if not tracks:
         return
 
     state.queue.extend(tracks)
     await refresh_queue(state)
-    if len(tracks) == 1:
-        await msg.channel.send(f"⏱️ **Queued**: {tracks[0].title}")
-    else:
-        await msg.channel.send(f"⏱️ Added {len(tracks)} tracks to queue")
+    await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
 
     # 再生していなければループを起動
     if not voice.is_playing() and not state.play_next.is_set():
@@ -566,7 +611,11 @@ async def cmd_stop(msg: discord.Message, _):
     """Bot を VC から切断し、キュー初期化"""
     if vc := msg.guild.voice_client:
         await vc.disconnect()
-    guild_states.pop(msg.guild.id, None)
+    state = guild_states.pop(msg.guild.id, None)
+    if state:
+        cleanup_track(state.current)
+        for tr in state.queue:
+            cleanup_track(tr)
     await msg.add_reaction("⏹️")
 
 
@@ -587,7 +636,11 @@ async def on_voice_state_update(member, before, after):
         try:
             await voice.disconnect()
         finally:
-            guild_states.pop(member.guild.id, None)
+            st = guild_states.pop(member.guild.id, None)
+            if st:
+                cleanup_track(st.current)
+                for tr in st.queue:
+                    cleanup_track(tr)
 
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
