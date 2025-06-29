@@ -83,8 +83,9 @@ def num_emoji(n: int) -> str:
 
 class MusicState:
     def __init__(self):
-        self.queue   = collections.deque()   # Track objects
+        self.queue   = collections.deque()   # 再生待ち Track 一覧
         self.loop    = 0  # 0:OFF,1:SONG,2:QUEUE
+        self.auto_leave = True             # 全員退出時に自動で切断するか
         self.current: Track | None = None
         self.play_next = asyncio.Event()
         self.queue_msg: discord.Message | None = None
@@ -294,16 +295,22 @@ def make_embed(state: "MusicState") -> discord.Embed:
 
     emb.add_field(name="Up Next", value=body, inline=False)
     loop_map = {0: "OFF", 1: "Song", 2: "Queue"}
-    emb.set_footer(text=f"Loop: {loop_map.get(state.loop, 'OFF')}")
+    footer = f"Loop: {loop_map.get(state.loop, 'OFF')} | Auto Leave: {'ON' if state.auto_leave else 'OFF'}"
+    emb.set_footer(text=footer)
     return emb
 
 class ControlView(discord.ui.View):
-    """Skip / Shuffle / Pause / Resume / Loop をまとめた操作ボタン"""
+    """再生操作やループ・自動退出の切替ボタンをまとめた View"""
     def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
         super().__init__(timeout=180)
         self.state, self.vc, self.owner_id = state, vc, owner_id
+        self._update_labels()
+
+    def _update_labels(self):
+        """各ボタンの表示を現在の状態に合わせて更新"""
         labels = {0: "OFF", 1: "Song", 2: "Queue"}
-        self.children[-1].label = f"🔁 Loop: {labels[self.state.loop]}"
+        self.loop_toggle.label = f"🔁 Loop: {labels[self.state.loop]}"
+        self.leave_toggle.label = f"👋 Auto Leave: {'ON' if self.state.auto_leave else 'OFF'}"
 
     async def interaction_check(self, itx: discord.Interaction) -> bool:
         if itx.user.id != self.owner_id:
@@ -333,10 +340,16 @@ class ControlView(discord.ui.View):
         await itx.response.defer()
 
     @discord.ui.button(label="🔁 Loop: OFF", style=discord.ButtonStyle.success)
-    async def _loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
+    async def loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
         self.state.loop = (self.state.loop + 1) % 3
-        labels = {0: "OFF", 1: "Song", 2: "Queue"}
-        btn.label = f"🔁 Loop: {labels[self.state.loop]}"
+        self._update_labels()
+        await refresh_queue(self.state)
+        await itx.response.defer()
+
+    @discord.ui.button(label="👋 Auto Leave: ON", style=discord.ButtonStyle.success)
+    async def leave_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
+        self.state.auto_leave = not self.state.auto_leave
+        self._update_labels()
         await refresh_queue(self.state)
         await itx.response.defer()
 
@@ -560,16 +573,17 @@ async def cmd_stop(msg: discord.Message, _):
 # ──────────── 🎵  自動切断ハンドラ ────────────
 @client.event
 async def on_voice_state_update(member, before, after):
-    """誰かが VC から抜けた時 ― Bot だけ残ったら自動切断"""
-    if member.guild.id not in guild_states:
+    """誰かが VC から抜けた時、条件に応じて Bot を切断"""
+    state = guild_states.get(member.guild.id)
+    if not state:
         return
 
     voice: discord.VoiceClient | None = member.guild.voice_client
     if not voice or not voice.is_connected():
         return
 
-    # VC 内のヒト(≠bot) が 0 人になった？
-    if len([m for m in voice.channel.members if not m.bot]) == 0:
+    # VC 内のヒト(≠bot) が 0 人になった & auto_leave が有効？
+    if len([m for m in voice.channel.members if not m.bot]) == 0 and state.auto_leave:
         try:
             await voice.disconnect()
         finally:
@@ -579,7 +593,7 @@ async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "**🎵 音楽機能**\n"
         "`y!play <URL/キーワード/プレイリスト>` - 曲やプレイリストを追加\n"
-        "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop）\n"
+        "`y!queue` - キュー表示＆ボタン操作（Skip / Shuffle / Pause / Resume / Loop / Leave）\n"
         "\n"
         "**💬 翻訳機能**\n"
         "国旗リアクションを付けると、そのメッセージを自動翻訳\n"
