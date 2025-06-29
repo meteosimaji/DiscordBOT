@@ -1,5 +1,6 @@
 import os, re, time, random, discord, openai, tempfile, logging
 from urllib.parse import urlparse, parse_qs
+
 from dataclasses import dataclass
 
 # ───────────────── TOKEN / KEY ─────────────────
@@ -8,6 +9,10 @@ with open("token.txt", "r", encoding="utf-8") as f:
 
 with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
     openai.api_key = f.read().strip()
+
+# ───────────────── Logger ─────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ───────────────── Logger ─────────────────
 logging.basicConfig(level=logging.INFO)
@@ -138,6 +143,94 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
     await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
 
 
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+def is_http_source(path_or_url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return path_or_url.startswith(("http://", "https://"))
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
+
+
+def is_playlist_url(url: str) -> bool:
+    """URL に playlist パラメータが含まれるか簡易判定"""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return 'list' in qs
+    except Exception:
+        return False
+
+
+def is_http_url(url: str) -> bool:
+    """http/https から始まる URL か判定"""
+    return url.startswith("http://") or url.startswith("https://")
+
+
+async def add_playlist_lazy(state: "MusicState", playlist_url: str,
+                            voice: discord.VoiceClient,
+                            channel: discord.TextChannel):
+    """プレイリストの曲を逐次取得してキューへ追加"""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(
+        None,
+        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
+            playlist_url, download=False)
+    )
+    entries = info.get("entries", [])
+    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
+    for ent in entries:
+        url = ent.get("url")
+        if not url:
+            continue
+        try:
+            tracks = await loop.run_in_executor(None, yt_extract, url)
+        except Exception as e:
+            print(f"取得失敗 ({url}): {e}")
+            continue
+        if not tracks:
+            continue
+        state.queue.append(tracks[0])
+        await refresh_queue(state)
+        if not voice.is_playing() and not state.play_next.is_set():
+            client.loop.create_task(state.player_loop(voice, channel))
+    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
+
+
 def cleanup_track(track: Track | None):
     """ローカルファイルの場合は削除"""
     if track and os.path.exists(track.url):
@@ -230,6 +323,8 @@ class MusicState:
                 continue
 
             self.start_time = time.time()
+
+
 
             # チャット通知 & Embed 更新
             await channel.send(f"▶️ **Now playing**: {title}")
