@@ -35,6 +35,7 @@ def parse_cmd(content: str):
     parts = body.split(maxsplit=1)
     return parts[0].lower(), parts[1] if len(parts) > 1 else ""
 
+
 from yt_dlp import YoutubeDL
 YTDL_OPTS = {
     "quiet": True,
@@ -95,6 +96,7 @@ def cleanup_track(track: Track | None):
             os.remove(track.url)
         except Exception as e:
             print(f"cleanup failed for {track.url}: {e}")
+
 
 def parse_message_link(link: str) -> tuple[int, int, int] | None:
     """Discord メッセージリンクを guild, channel, message ID に分解"""
@@ -179,6 +181,7 @@ class MusicState:
                 cleanup_track(finished)
             elif self.loop == 2 and self.queue:
                 self.queue.rotate(-1)
+
 
 # クラス外でOK
 async def refresh_queue(state: "MusicState"):
@@ -385,15 +388,16 @@ class ControlView(discord.ui.View):
     async def loop_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
         self.state.loop = (self.state.loop + 1) % 3
         self._update_labels()
+        await itx.response.edit_message(embed=make_embed(self.state), view=self)
         await refresh_queue(self.state)
-        await itx.response.defer()
 
     @discord.ui.button(label="👋 Auto Leave: ON", style=discord.ButtonStyle.success)
     async def leave_toggle(self, itx: discord.Interaction, btn: discord.ui.Button):
         self.state.auto_leave = not self.state.auto_leave
         self._update_labels()
+        await itx.response.edit_message(embed=make_embed(self.state), view=self)
         await refresh_queue(self.state)
-        await itx.response.defer()
+
 
 # ──────────── 🎵  Queue UI ここまで ──────────
 
@@ -555,6 +559,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
     try:
         # OpenAIリクエストを別スレッドで
         loop = asyncio.get_event_loop()
+
         resp = await loop.run_in_executor(
             None,
             lambda: openai.chat.completions.create(
@@ -568,11 +573,13 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
             )
         )
         ans = resp.choices[0].message.content.strip()
+
         await msg.channel.send(ans[:1900] + ("…" if len(ans) > 1900 else ""))
     except Exception as e:
         await msg.channel.send(f"エラー: {e}")
 
 # ──────────── 🎵  コマンド郡 ────────────
+
 async def cmd_play(msg: discord.Message, query: str):
     """曲をキューに追加して再生を開始"""
     args = query.split()
@@ -609,9 +616,11 @@ async def cmd_play(msg: discord.Message, query: str):
     await refresh_queue(state)
     await msg.channel.send(f"⏱️ **{len(tracks)}曲** をキューに追加しました！")
 
+
     # 再生していなければループを起動
     if not voice.is_playing() and not state.play_next.is_set():
         client.loop.create_task(state.player_loop(voice, msg.channel))
+
 
 
 async def cmd_stop(msg: discord.Message, _):
@@ -624,6 +633,75 @@ async def cmd_stop(msg: discord.Message, _):
         for tr in state.queue:
             cleanup_track(tr)
     await msg.add_reaction("⏹️")
+
+
+async def cmd_purge(msg: discord.Message, arg: str):
+    """指定数またはリンク以降のメッセージを一括削除"""
+    if not msg.guild:
+        await msg.reply("サーバー内でのみ使用できます。")
+        return
+
+    target_channel: discord.TextChannel = msg.channel
+    target_message: discord.Message | None = None
+    arg = arg.strip()
+    if not arg:
+        await msg.reply("`y!purge <数>` または `y!purge <メッセージリンク>` の形式で指定してね！")
+        return
+
+    if arg.isdigit():
+        limit = min(int(arg), 1000)
+    else:
+        ids = parse_message_link(arg)
+        if not ids:
+            await msg.reply("形式が正しくないよ！")
+            return
+        gid, cid, mid = ids
+        if gid != msg.guild.id:
+            await msg.reply("このサーバーのメッセージリンクを指定してね！")
+            return
+        ch = msg.guild.get_channel(cid)
+        if ch is None or not isinstance(ch, discord.TextChannel):
+            await msg.reply("リンク先チャンネルが見つかりません。")
+            return
+        target_channel = ch
+        try:
+            target_message = await ch.fetch_message(mid)
+        except discord.NotFound:
+            await msg.reply("指定したメッセージが見つかりませんでした。")
+            return
+        limit = None
+
+    # 権限チェック
+    perms_user = target_channel.permissions_for(msg.author)
+    perms_bot = target_channel.permissions_for(msg.guild.me)
+    if not (perms_user.manage_messages and perms_bot.manage_messages):
+        await msg.reply("管理メッセージ権限が足りません。")
+        return
+
+    deleted_total = 0
+    try:
+        if target_message is None:
+            deleted = await target_channel.purge(limit=limit)
+            deleted_total = len(deleted)
+        else:
+            after = target_message
+            while True:
+                batch = await target_channel.purge(after=after, limit=100)
+                if not batch:
+                    break
+                deleted_total += len(batch)
+                after = batch[-1]
+            try:
+                await target_message.delete()
+                deleted_total += 1
+            except discord.HTTPException:
+                pass
+    except discord.Forbidden:
+        await msg.reply("権限不足で削除できませんでした。")
+        return
+
+    await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
+
 
 async def cmd_purge(msg: discord.Message, arg: str):
     """指定数またはリンク以降のメッセージを一括削除"""
@@ -694,6 +772,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
 
 
 # ──────────── 🎵  自動切断ハンドラ ────────────
+
 @client.event
 async def on_voice_state_update(member, before, after):
     """誰かが VC から抜けた時、条件に応じて Bot を切断"""
@@ -715,6 +794,7 @@ async def on_voice_state_update(member, before, after):
                 cleanup_track(st.current)
                 for tr in st.queue:
                     cleanup_track(tr)
+
 
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
@@ -740,6 +820,7 @@ async def cmd_help(msg: discord.Message):
         "`y!help` - このヘルプ\n"
         "`y!?`  - 返信で使うと名言化"
     )
+
 
 
 # ───────────────── イベント ─────────────────
@@ -1177,6 +1258,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "play": await cmd_play(msg, arg)
     elif cmd == "queue":await cmd_queue(msg, arg)
     elif cmd == "purge":await cmd_purge(msg, arg)
+
 
 # ───────────────── 起動 ─────────────────
 client.run(TOKEN)
