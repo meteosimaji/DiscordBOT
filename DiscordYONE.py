@@ -367,13 +367,17 @@ class MusicState:
             except FileNotFoundError:
                 logger.error("ffmpeg executable not found")
                 await channel.send(
-                    "⚠️ **ffmpeg が見つかりません** — サーバーに ffmpeg をインストールして再試行してください。"
+                    "⚠️ **ffmpeg が見つかりません** — サーバーに ffmpeg をインストールして再試行してください。",
+                    delete_after=5
                 )
                 cleanup_track(self.queue.popleft())
                 continue
             except Exception as e:
                 logger.error(f"ffmpeg 再生エラー: {e}")
-                await channel.send(f"⚠️ `{title}` の再生に失敗しました（{e}）")
+                await channel.send(
+                    f"⚠️ `{title}` の再生に失敗しました（{e}）",
+                    delete_after=5
+                )
                 cleanup_track(self.queue.popleft())
                 continue
 
@@ -535,7 +539,10 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
             timeout=10
         )
     except asyncio.TimeoutError:
-        await msg.reply("⚠️ VC への接続に失敗しました。もう一度試してね！")
+        await msg.reply(
+            "⚠️ VC への接続に失敗しました。もう一度試してね！",
+            delete_after=5
+        )
         return None
 
 # ──────────── 🎵  Queue UI ここから ────────────
@@ -873,7 +880,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 
         await msg.channel.send(ans[:1900] + ("…" if len(ans) > 1900 else ""))
     except Exception as e:
-        await msg.channel.send(f"エラー: {e}")
+        await msg.channel.send(f"エラー: {e}", delete_after=5)
 
 # ──────────── 🎵  コマンド郡 ────────────
 
@@ -897,7 +904,7 @@ async def cmd_play(msg: discord.Message, query: str):
         try:
             tracks += await attachments_to_tracks(attachments)
         except Exception as e:
-            await msg.reply(f"添付ファイル取得エラー: {e}")
+            await msg.reply(f"添付ファイル取得エラー: {e}", delete_after=5)
             return
 
 
@@ -909,7 +916,7 @@ async def cmd_play(msg: discord.Message, query: str):
         else:
             url_tracks = yt_extract_multiple(args)
             if not url_tracks:
-                await msg.reply("URLから曲を取得できませんでした。")
+                await msg.reply("URLから曲を取得できませんでした。", delete_after=5)
             tracks += url_tracks
 
     if not tracks and not playlist_handled:
@@ -986,7 +993,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
     perms_user = target_channel.permissions_for(msg.author)
     perms_bot = target_channel.permissions_for(msg.guild.me)
     if not (perms_user.manage_messages and perms_bot.manage_messages):
-        await msg.reply("管理メッセージ権限が足りません。")
+        await msg.reply("管理メッセージ権限が足りません。", delete_after=5)
         return
 
     deleted_total = 0
@@ -1008,7 +1015,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
             except discord.HTTPException:
                 pass
     except discord.Forbidden:
-        await msg.reply("権限不足で削除できませんでした。")
+        await msg.reply("権限不足で削除できませんでした。", delete_after=5)
         return
 
     await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
@@ -1445,9 +1452,9 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         except Exception as e:
             # 失敗したらメッセージ主へリプライ（失敗した場合はチャンネルに通知）
             try:
-                await message.reply(f"翻訳エラー: {e}")
+                await message.reply(f"翻訳エラー: {e}", delete_after=5)
             except:
-                await channel.send(f"翻訳エラー: {e}")
+                await channel.send(f"翻訳エラー: {e}", delete_after=5)
             print("[ERROR] 翻訳失敗:", e)
 
 
