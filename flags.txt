@@ -1,0 +1,249 @@
+🇦🇼  :flag_aw:  Aruba
+🇦🇫  :flag_af:  Afghanistan
+🇦🇴  :flag_ao:  Angola
+🇦🇮  :flag_ai:  Anguilla
+🇦🇽  :flag_ax:  Åland Islands
+🇦🇱  :flag_al:  Albania
+🇦🇩  :flag_ad:  Andorra
+🇦🇪  :flag_ae:  United Arab Emirates
+🇦🇷  :flag_ar:  Argentina
+🇦🇲  :flag_am:  Armenia
+🇦🇸  :flag_as:  American Samoa
+🇦🇶  :flag_aq:  Antarctica
+🇹🇫  :flag_tf:  French Southern Territories
+🇦🇬  :flag_ag:  Antigua and Barbuda
+🇦🇺  :flag_au:  Australia
+🇦🇹  :flag_at:  Austria
+🇦🇿  :flag_az:  Azerbaijan
+🇧🇮  :flag_bi:  Burundi
+🇧🇪  :flag_be:  Belgium
+🇧🇯  :flag_bj:  Benin
+🇧🇶  :flag_bq:  Bonaire, Sint Eustatius and Saba
+🇧🇫  :flag_bf:  Burkina Faso
+🇧🇩  :flag_bd:  Bangladesh
+🇧🇬  :flag_bg:  Bulgaria
+🇧🇭  :flag_bh:  Bahrain
+🇧🇸  :flag_bs:  Bahamas
+🇧🇦  :flag_ba:  Bosnia and Herzegovina
+🇧🇱  :flag_bl:  Saint Barthélemy
+🇧🇾  :flag_by:  Belarus
+🇧🇿  :flag_bz:  Belize
+🇧🇲  :flag_bm:  Bermuda
+🇧🇴  :flag_bo:  Bolivia, Plurinational State of
+🇧🇷  :flag_br:  Brazil
+🇧🇧  :flag_bb:  Barbados
+🇧🇳  :flag_bn:  Brunei Darussalam
+🇧🇹  :flag_bt:  Bhutan
+🇧🇻  :flag_bv:  Bouvet Island
+🇧🇼  :flag_bw:  Botswana
+🇨🇫  :flag_cf:  Central African Republic
+🇨🇦  :flag_ca:  Canada
+🇨🇨  :flag_cc:  Cocos (Keeling) Islands
+🇨🇭  :flag_ch:  Switzerland
+🇨🇱  :flag_cl:  Chile
+🇨🇳  :flag_cn:  China
+🇨🇮  :flag_ci:  Côte d'Ivoire
+🇨🇲  :flag_cm:  Cameroon
+🇨🇩  :flag_cd:  Congo, The Democratic Republic of the
+🇨🇬  :flag_cg:  Congo
+🇨🇰  :flag_ck:  Cook Islands
+🇨🇴  :flag_co:  Colombia
+🇰🇲  :flag_km:  Comoros
+🇨🇻  :flag_cv:  Cabo Verde
+🇨🇷  :flag_cr:  Costa Rica
+🇨🇺  :flag_cu:  Cuba
+🇨🇼  :flag_cw:  Curaçao
+🇨🇽  :flag_cx:  Christmas Island
+🇰🇾  :flag_ky:  Cayman Islands
+🇨🇾  :flag_cy:  Cyprus
+🇨🇿  :flag_cz:  Czechia
+🇩🇪  :flag_de:  Germany
+🇩🇯  :flag_dj:  Djibouti
+🇩🇲  :flag_dm:  Dominica
+🇩🇰  :flag_dk:  Denmark
+🇩🇴  :flag_do:  Dominican Republic
+🇩🇿  :flag_dz:  Algeria
+🇪🇨  :flag_ec:  Ecuador
+🇪🇬  :flag_eg:  Egypt
+🇪🇷  :flag_er:  Eritrea
+🇪🇭  :flag_eh:  Western Sahara
+🇪🇸  :flag_es:  Spain
+🇪🇪  :flag_ee:  Estonia
+🇪🇹  :flag_et:  Ethiopia
+🇫🇮  :flag_fi:  Finland
+🇫🇯  :flag_fj:  Fiji
+🇫🇰  :flag_fk:  Falkland Islands (Malvinas)
+🇫🇷  :flag_fr:  France
+🇫🇴  :flag_fo:  Faroe Islands
+🇫🇲  :flag_fm:  Micronesia, Federated States of
+🇬🇦  :flag_ga:  Gabon
+🇬🇧  :flag_gb:  United Kingdom
+🇬🇪  :flag_ge:  Georgia
+🇬🇬  :flag_gg:  Guernsey
+🇬🇭  :flag_gh:  Ghana
+🇬🇮  :flag_gi:  Gibraltar
+🇬🇳  :flag_gn:  Guinea
+🇬🇵  :flag_gp:  Guadeloupe
+🇬🇲  :flag_gm:  Gambia
+🇬🇼  :flag_gw:  Guinea-Bissau
+🇬🇶  :flag_gq:  Equatorial Guinea
+🇬🇷  :flag_gr:  Greece
+🇬🇩  :flag_gd:  Grenada
+🇬🇱  :flag_gl:  Greenland
+🇬🇹  :flag_gt:  Guatemala
+🇬🇫  :flag_gf:  French Guiana
+🇬🇺  :flag_gu:  Guam
+🇬🇾  :flag_gy:  Guyana
+🇭🇰  :flag_hk:  Hong Kong
+🇭🇲  :flag_hm:  Heard Island and McDonald Islands
+🇭🇳  :flag_hn:  Honduras
+🇭🇷  :flag_hr:  Croatia
+🇭🇹  :flag_ht:  Haiti
+🇭🇺  :flag_hu:  Hungary
+🇮🇩  :flag_id:  Indonesia
+🇮🇲  :flag_im:  Isle of Man
+🇮🇳  :flag_in:  India
+🇮🇴  :flag_io:  British Indian Ocean Territory
+🇮🇪  :flag_ie:  Ireland
+🇮🇷  :flag_ir:  Iran, Islamic Republic of
+🇮🇶  :flag_iq:  Iraq
+🇮🇸  :flag_is:  Iceland
+🇮🇱  :flag_il:  Israel
+🇮🇹  :flag_it:  Italy
+🇯🇲  :flag_jm:  Jamaica
+🇯🇪  :flag_je:  Jersey
+🇯🇴  :flag_jo:  Jordan
+🇯🇵  :flag_jp:  Japan
+🇰🇿  :flag_kz:  Kazakhstan
+🇰🇪  :flag_ke:  Kenya
+🇰🇬  :flag_kg:  Kyrgyzstan
+🇰🇭  :flag_kh:  Cambodia
+🇰🇮  :flag_ki:  Kiribati
+🇰🇳  :flag_kn:  Saint Kitts and Nevis
+🇰🇷  :flag_kr:  Korea, Republic of
+🇰🇼  :flag_kw:  Kuwait
+🇱🇦  :flag_la:  Lao People's Democratic Republic
+🇱🇧  :flag_lb:  Lebanon
+🇱🇷  :flag_lr:  Liberia
+🇱🇾  :flag_ly:  Libya
+🇱🇨  :flag_lc:  Saint Lucia
+🇱🇮  :flag_li:  Liechtenstein
+🇱🇰  :flag_lk:  Sri Lanka
+🇱🇸  :flag_ls:  Lesotho
+🇱🇹  :flag_lt:  Lithuania
+🇱🇺  :flag_lu:  Luxembourg
+🇱🇻  :flag_lv:  Latvia
+🇲🇴  :flag_mo:  Macao
+🇲🇫  :flag_mf:  Saint Martin (French part)
+🇲🇦  :flag_ma:  Morocco
+🇲🇨  :flag_mc:  Monaco
+🇲🇩  :flag_md:  Moldova, Republic of
+🇲🇬  :flag_mg:  Madagascar
+🇲🇻  :flag_mv:  Maldives
+🇲🇽  :flag_mx:  Mexico
+🇲🇭  :flag_mh:  Marshall Islands
+🇲🇰  :flag_mk:  North Macedonia
+🇲🇱  :flag_ml:  Mali
+🇲🇹  :flag_mt:  Malta
+🇲🇲  :flag_mm:  Myanmar
+🇲🇪  :flag_me:  Montenegro
+🇲🇳  :flag_mn:  Mongolia
+🇲🇵  :flag_mp:  Northern Mariana Islands
+🇲🇿  :flag_mz:  Mozambique
+🇲🇷  :flag_mr:  Mauritania
+🇲🇸  :flag_ms:  Montserrat
+🇲🇶  :flag_mq:  Martinique
+🇲🇺  :flag_mu:  Mauritius
+🇲🇼  :flag_mw:  Malawi
+🇲🇾  :flag_my:  Malaysia
+🇾🇹  :flag_yt:  Mayotte
+🇳🇦  :flag_na:  Namibia
+🇳🇨  :flag_nc:  New Caledonia
+🇳🇪  :flag_ne:  Niger
+🇳🇫  :flag_nf:  Norfolk Island
+🇳🇬  :flag_ng:  Nigeria
+🇳🇮  :flag_ni:  Nicaragua
+🇳🇺  :flag_nu:  Niue
+🇳🇱  :flag_nl:  Netherlands
+🇳🇴  :flag_no:  Norway
+🇳🇵  :flag_np:  Nepal
+🇳🇷  :flag_nr:  Nauru
+🇳🇿  :flag_nz:  New Zealand
+🇴🇲  :flag_om:  Oman
+🇵🇰  :flag_pk:  Pakistan
+🇵🇦  :flag_pa:  Panama
+🇵🇳  :flag_pn:  Pitcairn
+🇵🇪  :flag_pe:  Peru
+🇵🇭  :flag_ph:  Philippines
+🇵🇼  :flag_pw:  Palau
+🇵🇬  :flag_pg:  Papua New Guinea
+🇵🇱  :flag_pl:  Poland
+🇵🇷  :flag_pr:  Puerto Rico
+🇰🇵  :flag_kp:  Korea, Democratic People's Republic of
+🇵🇹  :flag_pt:  Portugal
+🇵🇾  :flag_py:  Paraguay
+🇵🇸  :flag_ps:  Palestine, State of
+🇵🇫  :flag_pf:  French Polynesia
+🇶🇦  :flag_qa:  Qatar
+🇷🇪  :flag_re:  Réunion
+🇷🇴  :flag_ro:  Romania
+🇷🇺  :flag_ru:  Russian Federation
+🇷🇼  :flag_rw:  Rwanda
+🇸🇦  :flag_sa:  Saudi Arabia
+🇸🇩  :flag_sd:  Sudan
+🇸🇳  :flag_sn:  Senegal
+🇸🇬  :flag_sg:  Singapore
+🇬🇸  :flag_gs:  South Georgia and the South Sandwich Islands
+🇸🇭  :flag_sh:  Saint Helena, Ascension and Tristan da Cunha
+🇸🇯  :flag_sj:  Svalbard and Jan Mayen
+🇸🇧  :flag_sb:  Solomon Islands
+🇸🇱  :flag_sl:  Sierra Leone
+🇸🇻  :flag_sv:  El Salvador
+🇸🇲  :flag_sm:  San Marino
+🇸🇴  :flag_so:  Somalia
+🇵🇲  :flag_pm:  Saint Pierre and Miquelon
+🇷🇸  :flag_rs:  Serbia
+🇸🇸  :flag_ss:  South Sudan
+🇸🇹  :flag_st:  Sao Tome and Principe
+🇸🇷  :flag_sr:  Suriname
+🇸🇰  :flag_sk:  Slovakia
+🇸🇮  :flag_si:  Slovenia
+🇸🇪  :flag_se:  Sweden
+🇸🇿  :flag_sz:  Eswatini
+🇸🇽  :flag_sx:  Sint Maarten (Dutch part)
+🇸🇨  :flag_sc:  Seychelles
+🇸🇾  :flag_sy:  Syrian Arab Republic
+🇹🇨  :flag_tc:  Turks and Caicos Islands
+🇹🇩  :flag_td:  Chad
+🇹🇬  :flag_tg:  Togo
+🇹🇭  :flag_th:  Thailand
+🇹🇯  :flag_tj:  Tajikistan
+🇹🇰  :flag_tk:  Tokelau
+🇹🇲  :flag_tm:  Turkmenistan
+🇹🇱  :flag_tl:  Timor-Leste
+🇹🇴  :flag_to:  Tonga
+🇹🇹  :flag_tt:  Trinidad and Tobago
+🇹🇳  :flag_tn:  Tunisia
+🇹🇷  :flag_tr:  Türkiye
+🇹🇻  :flag_tv:  Tuvalu
+🇹🇼  :flag_tw:  Taiwan, Province of China
+🇹🇿  :flag_tz:  Tanzania, United Republic of
+🇺🇬  :flag_ug:  Uganda
+🇺🇦  :flag_ua:  Ukraine
+🇺🇲  :flag_um:  United States Minor Outlying Islands
+🇺🇾  :flag_uy:  Uruguay
+🇺🇸  :flag_us:  United States
+🇺🇿  :flag_uz:  Uzbekistan
+🇻🇦  :flag_va:  Holy See (Vatican City State)
+🇻🇨  :flag_vc:  Saint Vincent and the Grenadines
+🇻🇪  :flag_ve:  Venezuela, Bolivarian Republic of
+🇻🇬  :flag_vg:  Virgin Islands, British
+🇻🇮  :flag_vi:  Virgin Islands, U.S.
+🇻🇳  :flag_vn:  Viet Nam
+🇻🇺  :flag_vu:  Vanuatu
+🇼🇫  :flag_wf:  Wallis and Futuna
+🇼🇸  :flag_ws:  Samoa
+🇾🇪  :flag_ye:  Yemen
+🇿🇦  :flag_za:  South Africa
+🇿🇲  :flag_zm:  Zambia
+🇿🇼  :flag_zw:  Zimbabwe
