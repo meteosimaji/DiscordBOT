@@ -95,6 +95,13 @@ def cleanup_track(track: Track | None):
             os.remove(track.url)
         except Exception as e:
             print(f"cleanup failed for {track.url}: {e}")
+
+def parse_message_link(link: str) -> tuple[int, int, int] | None:
+    """Discord メッセージリンクを guild, channel, message ID に分解"""
+    m = re.search(r"discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)", link)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
     
 import asyncio, collections
 
@@ -618,6 +625,73 @@ async def cmd_stop(msg: discord.Message, _):
             cleanup_track(tr)
     await msg.add_reaction("⏹️")
 
+async def cmd_purge(msg: discord.Message, arg: str):
+    """指定数またはリンク以降のメッセージを一括削除"""
+    if not msg.guild:
+        await msg.reply("サーバー内でのみ使用できます。")
+        return
+
+    target_channel: discord.TextChannel = msg.channel
+    target_message: discord.Message | None = None
+    arg = arg.strip()
+    if not arg:
+        await msg.reply("`y!purge <数>` または `y!purge <メッセージリンク>` の形式で指定してね！")
+        return
+
+    if arg.isdigit():
+        limit = min(int(arg), 1000)
+    else:
+        ids = parse_message_link(arg)
+        if not ids:
+            await msg.reply("形式が正しくないよ！")
+            return
+        gid, cid, mid = ids
+        if gid != msg.guild.id:
+            await msg.reply("このサーバーのメッセージリンクを指定してね！")
+            return
+        ch = msg.guild.get_channel(cid)
+        if ch is None or not isinstance(ch, discord.TextChannel):
+            await msg.reply("リンク先チャンネルが見つかりません。")
+            return
+        target_channel = ch
+        try:
+            target_message = await ch.fetch_message(mid)
+        except discord.NotFound:
+            await msg.reply("指定したメッセージが見つかりませんでした。")
+            return
+        limit = None
+
+    # 権限チェック
+    perms_user = target_channel.permissions_for(msg.author)
+    perms_bot = target_channel.permissions_for(msg.guild.me)
+    if not (perms_user.manage_messages and perms_bot.manage_messages):
+        await msg.reply("管理メッセージ権限が足りません。")
+        return
+
+    deleted_total = 0
+    try:
+        if target_message is None:
+            deleted = await target_channel.purge(limit=limit)
+            deleted_total = len(deleted)
+        else:
+            after = target_message
+            while True:
+                batch = await target_channel.purge(after=after, limit=100)
+                if not batch:
+                    break
+                deleted_total += len(batch)
+                after = batch[-1]
+            try:
+                await target_message.delete()
+                deleted_total += 1
+            except discord.HTTPException:
+                pass
+    except discord.Forbidden:
+        await msg.reply("権限不足で削除できませんでした。")
+        return
+
+    await msg.channel.send(f"🗑️ {deleted_total} 件のメッセージを削除しました。", delete_after=5)
+
 
 # ──────────── 🎵  自動切断ハンドラ ────────────
 @client.event
@@ -662,6 +736,7 @@ async def cmd_help(msg: discord.Message):
         "`y!say <text>` - エコー\n"
         "`y!date` - 今日の日時\n"
         "`y!XdY` - ダイス(例: y!2d6)\n"
+        "`y!purge <n|link>` - メッセージ一括削除\n"
         "`y!help` - このヘルプ\n"
         "`y!?`  - 返信で使うと名言化"
     )
@@ -1101,6 +1176,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "help": await cmd_help(msg)
     elif cmd == "play": await cmd_play(msg, arg)
     elif cmd == "queue":await cmd_queue(msg, arg)
+    elif cmd == "purge":await cmd_purge(msg, arg)
 
 # ───────────────── 起動 ─────────────────
 client.run(TOKEN)
