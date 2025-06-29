@@ -969,11 +969,11 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
                     {
                         "role": "system",
                         "content": (
-                            f"Translate the following text into {lang}. "
-                            f"The flag emoji is {emoji}. Return only the translation."
+                            f"Translate the user's message into {lang}. "
+                            f"The flag emoji is {emoji}. Respond only with the translated text without the emoji."
                         )
                     },
-                    {"role": "user", "content": f"{emoji} {original}"}
+                    {"role": "user", "content": original}
                 ],
                 max_tokens=1000,
                 temperature=0.3,
