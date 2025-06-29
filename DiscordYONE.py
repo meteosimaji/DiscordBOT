@@ -1,5 +1,6 @@
 import os, re, time, random, discord, openai, tempfile, logging
 from urllib.parse import urlparse, parse_qs
+from logging.handlers import RotatingFileHandler
 
 from dataclasses import dataclass
 
@@ -11,7 +12,9 @@ with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
     openai.api_key = f.read().strip()
 
 # ───────────────── Logger ─────────────────
-logging.basicConfig(level=logging.INFO)
+handler = RotatingFileHandler('bot.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+logging.getLogger('discord').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # チャンネル型の許可タプル (Text / Thread / Stage)
@@ -19,15 +22,10 @@ MESSAGE_CHANNEL_TYPES: tuple[type, ...] = (
     discord.TextChannel,
     discord.Thread,
     discord.StageChannel,
+    discord.VoiceChannel,
 )
 
 # ───────────────── Logger ─────────────────
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ───────────────── Logger ─────────────────
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # ───────────────── Discord 初期化 ─────────────────
 intents = discord.Intents.default()
@@ -319,7 +317,7 @@ def make_bar(pos: int, total: int, width: int = 15) -> str:
 
 def num_emoji(n: int) -> str:
     emojis = ["0️⃣","1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"]
-    return emojis[n] if 0 <= n < len(emojis) else str(n)
+    return emojis[n] if 0 <= n < len(emojis) else f'[{n}]'
 
 class MusicState:
     def __init__(self):
@@ -519,11 +517,57 @@ class QuoteView(discord.ui.View):
 
 # ──────────── 🎵  VCユーティリティ ────────────
 guild_states: dict[int, "MusicState"] = {}
+voice_lock = asyncio.Lock()
+last_4022: dict[int, float] = {}
+
+class YoneVoiceClient(discord.VoiceClient):
+    async def poll_voice_ws(self, reconnect: bool) -> None:
+        backoff = discord.utils.ExponentialBackoff()
+        while True:
+            try:
+                await self.ws.poll_event()
+            except (discord.errors.ConnectionClosed, asyncio.TimeoutError) as exc:
+                if isinstance(exc, discord.errors.ConnectionClosed):
+                    if exc.code in (1000, 4015):
+                        logger.info('Disconnecting from voice normally, close code %d.', exc.code)
+                        await self.disconnect()
+                        break
+                    if exc.code == 4014:
+                        logger.info('Disconnected from voice by force... potentially reconnecting.')
+                        successful = await self.potential_reconnect()
+                        if not successful:
+                            logger.info('Reconnect was unsuccessful, disconnecting from voice normally...')
+                            await self.disconnect()
+                            break
+                        else:
+                            continue
+                    if exc.code == 4022:
+                        last_4022[self.guild.id] = time.time()
+                        logger.warning('Received 4022, suppressing reconnect for 60s')
+                        await self.disconnect()
+                        break
+                if not reconnect:
+                    await self.disconnect()
+                    raise
+
+                retry = backoff.delay()
+                logger.exception('Disconnected from voice... Reconnecting in %.2fs.', retry)
+                self._connected.clear()
+                await asyncio.sleep(retry)
+                await self.voice_disconnect()
+                try:
+                    await self.connect(reconnect=True, timeout=self.timeout)
+                except asyncio.TimeoutError:
+                    logger.warning('Could not connect to voice... Retrying...')
+                    continue
 
 async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
     """発話者が入っている VC へ Bot を接続（既に接続済みならそれを返す）"""
     if msg.author.voice is None or msg.author.voice.channel is None:
         await msg.reply("🎤 まず VC に入室してからコマンドを実行してね！")
+        return None
+
+    if time.time() - last_4022.get(msg.guild.id, 0) < 60:
         return None
 
     voice = msg.guild.voice_client
@@ -534,10 +578,18 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
 
     # 未接続 → 接続を試みる（10 秒タイムアウト）
     try:
-        return await asyncio.wait_for(
-            msg.author.voice.channel.connect(self_deaf=True),
-            timeout=10
-        )
+        async with voice_lock:
+            if msg.guild.voice_client and msg.guild.voice_client.is_connected():
+                return msg.guild.voice_client
+            return await asyncio.wait_for(
+                msg.author.voice.channel.connect(self_deaf=True, cls=YoneVoiceClient),
+                timeout=10
+            )
+    except discord.errors.ConnectionClosed as e:
+        if e.code == 4022:
+            last_4022[msg.guild.id] = time.time()
+        await msg.reply("⚠️ VC への接続に失敗しました。", delete_after=5)
+        return None
     except asyncio.TimeoutError:
         await msg.reply(
             "⚠️ VC への接続に失敗しました。もう一度試してね！",
@@ -684,6 +736,39 @@ class ControlView(discord.ui.View):
             )
 
 
+# ──────────── 削除ボタン付き View ──────────
+class RemoveButton(discord.ui.Button):
+    def __init__(self, index: int):
+        super().__init__(label=f"🗑 {index}", style=discord.ButtonStyle.danger, row=1 + (index - 1) // 5)
+        self.index = index
+
+    async def callback(self, interaction: discord.Interaction):
+        view: QueueRemoveView = self.view  # type: ignore
+        if interaction.user.id != view.owner_id:
+            await interaction.response.send_message(
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
+            )
+            return
+        if self.index - 1 >= len(view.state.queue):
+            await interaction.response.send_message(
+                "⚠️ この操作パネルは無効です。\n`y!queue` で再表示してね！",
+                ephemeral=True,
+            )
+            return
+        tr = list(view.state.queue)[self.index - 1]
+        del view.state.queue[self.index - 1]
+        cleanup_track(tr)
+        await interaction.response.edit_message(embed=make_embed(view.state), view=view)
+        await refresh_queue(view.state)
+
+
+class QueueRemoveView(ControlView):
+    def __init__(self, state: "MusicState", vc: discord.VoiceClient, owner_id: int):
+        super().__init__(state, vc, owner_id)
+        for i in range(1, min(11, len(state.queue) + 1)):
+            self.add_item(RemoveButton(i))
+
 
 # ──────────── 🎵  Queue UI ここまで ──────────
 
@@ -697,7 +782,7 @@ async def cmd_queue(msg: discord.Message, _):
     if not state:
         await msg.reply("キューは空だよ！"); return
     vc   = msg.guild.voice_client
-    view = ControlView(state, vc, msg.author.id)
+    view = QueueRemoveView(state, vc, msg.author.id)
     state.queue_msg = await msg.channel.send(embed=make_embed(state), view=view)
 
 
@@ -947,6 +1032,49 @@ async def cmd_stop(msg: discord.Message, _):
     await msg.add_reaction("⏹️")
 
 
+async def cmd_remove(msg: discord.Message, arg: str):
+    state = guild_states.get(msg.guild.id)
+    if not state or not state.queue:
+        await msg.reply("キューは空だよ！")
+        return
+    nums = [int(x) for x in arg.split() if x.isdecimal()]
+    if not nums:
+        await msg.reply("番号を指定してね！")
+        return
+    q = list(state.queue)
+    removed = []
+    for i in sorted(set(nums), reverse=True):
+        if 1 <= i <= len(q):
+            removed.append(q.pop(i-1))
+    state.queue = collections.deque(q)
+    for tr in removed:
+        cleanup_track(tr)
+    await refresh_queue(state)
+
+
+async def cmd_keep(msg: discord.Message, arg: str):
+    state = guild_states.get(msg.guild.id)
+    if not state or not state.queue:
+        await msg.reply("キューは空だよ！")
+        return
+    nums = {int(x) for x in arg.split() if x.isdecimal()}
+    if not nums:
+        await msg.reply("番号を指定してね！")
+        return
+    q = list(state.queue)
+    kept = []
+    removed = []
+    for i, tr in enumerate(q, 1):
+        if i in nums:
+            kept.append(tr)
+        else:
+            removed.append(tr)
+    state.queue = collections.deque(kept)
+    for tr in removed:
+        cleanup_track(tr)
+    await refresh_queue(state)
+
+
 async def cmd_purge(msg: discord.Message, arg: str):
     """指定数またはリンク以降のメッセージを一括削除"""
     if not msg.guild:
@@ -985,8 +1113,11 @@ async def cmd_purge(msg: discord.Message, arg: str):
                 await msg.reply("指定メッセージが存在しません。")
                 return
         else:
-            await msg.reply("このチャンネル型では purge が未対応です。")
-            return
+            try:
+                target_message = await ch.fetch_message(mid)
+            except Exception:
+                await msg.reply("このチャンネル型では purge が未対応です。")
+                return
         limit = None
 
     # 権限チェック
@@ -999,12 +1130,21 @@ async def cmd_purge(msg: discord.Message, arg: str):
     deleted_total = 0
     try:
         if target_message is None:
-            deleted = await target_channel.purge(limit=limit)
-            deleted_total = len(deleted)
+            if hasattr(target_channel, "purge"):
+                deleted = await target_channel.purge(limit=limit)
+                deleted_total = len(deleted)
+            else:
+                msgs = [m async for m in target_channel.history(limit=limit)]
+                await target_channel.delete_messages(msgs)
+                deleted_total = len(msgs)
         else:
             after = target_message
             while True:
-                batch = await target_channel.purge(after=after, limit=100)
+                if hasattr(target_channel, "purge"):
+                    batch = await target_channel.purge(after=after, limit=100)
+                else:
+                    batch = [m async for m in target_channel.history(after=after, limit=100)]
+                    await target_channel.delete_messages(batch)
                 if not batch:
                     break
                 deleted_total += len(batch)
@@ -1508,6 +1648,8 @@ async def on_message(msg: discord.Message):
     elif cmd == "help": await cmd_help(msg)
     elif cmd == "play": await cmd_play(msg, arg)
     elif cmd == "queue":await cmd_queue(msg, arg)
+    elif cmd == "remove":await cmd_remove(msg, arg)
+    elif cmd == "keep": await cmd_keep(msg, arg)
     elif cmd == "purge":await cmd_purge(msg, arg)
 
 
