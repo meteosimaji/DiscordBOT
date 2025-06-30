@@ -1628,20 +1628,32 @@ async def cmd_purge(msg: discord.Message, arg: str):
     try:
         if target_message is None:
             if hasattr(target_channel, "purge"):
-                deleted = await target_channel.purge(limit=limit)
+                try:
+                    deleted = await target_channel.purge(limit=limit, check=lambda m: m.id != msg.id)
+                except discord.NotFound:
+                    deleted = []
                 deleted_total = len(deleted)
             else:
-                msgs = [m async for m in target_channel.history(limit=limit)]
-                await target_channel.delete_messages(msgs)
+                msgs = [m async for m in target_channel.history(limit=limit) if m.id != msg.id]
+                try:
+                    await target_channel.delete_messages(msgs)
+                except discord.NotFound:
+                    pass
                 deleted_total = len(msgs)
         else:
             after = target_message
             while True:
                 if hasattr(target_channel, "purge"):
-                    batch = await target_channel.purge(after=after, limit=100)
+                    try:
+                        batch = await target_channel.purge(after=after, limit=100, check=lambda m: m.id != msg.id)
+                    except discord.NotFound:
+                        batch = []
                 else:
-                    batch = [m async for m in target_channel.history(after=after, limit=100)]
-                    await target_channel.delete_messages(batch)
+                    batch = [m async for m in target_channel.history(after=after, limit=100) if m.id != msg.id]
+                    try:
+                        await target_channel.delete_messages(batch)
+                    except discord.NotFound:
+                        pass
                 if not batch:
                     break
                 deleted_total += len(batch)
@@ -1649,7 +1661,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
             try:
                 await target_message.delete()
                 deleted_total += 1
-            except discord.HTTPException:
+            except (discord.HTTPException, discord.NotFound):
                 pass
     except discord.Forbidden:
         await msg.reply("権限不足で削除できませんでした。", delete_after=5)
