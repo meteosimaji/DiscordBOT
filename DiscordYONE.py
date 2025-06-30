@@ -239,53 +239,11 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
     return tracks
 
 
-def is_playlist_url(url: str) -> bool:
-    """URL に playlist パラメータが含まれるか簡易判定"""
-    try:
-        qs = parse_qs(urlparse(url).query)
-        return 'list' in qs
-    except Exception:
-        return False
-
-
 def is_http_source(path_or_url: str) -> bool:
     """http/https から始まる URL か判定"""
     return path_or_url.startswith(("http://", "https://"))
 
 
-async def add_playlist_lazy(state: "MusicState", playlist_url: str,
-                            voice: discord.VoiceClient,
-                            channel: discord.TextChannel):
-    """プレイリストの曲を逐次取得してキューへ追加"""
-    task = asyncio.current_task()
-    loop = asyncio.get_event_loop()
-    info = await loop.run_in_executor(
-        None,
-        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
-            playlist_url, download=False)
-    )
-    entries = info.get("entries", [])
-    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
-    for ent in entries:
-        if task.cancelled() or not voice.is_connected():
-            break
-        url = ent.get("url")
-        if not url:
-            continue
-        try:
-            tracks = await loop.run_in_executor(None, yt_extract, url)
-        except Exception as e:
-            print(f"取得失敗 ({url}): {e}")
-            continue
-        if not tracks:
-            continue
-        state.queue.append(tracks[0])
-        await refresh_queue(state)
-        if not voice.is_playing() and not state.play_next.is_set():
-            client.loop.create_task(state.player_loop(voice, channel))
-    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
-
-
 def is_playlist_url(url: str) -> bool:
     """URL に playlist パラメータが含まれるか簡易判定"""
     try:
@@ -295,98 +253,6 @@ def is_playlist_url(url: str) -> bool:
         return False
 
 
-def is_http_source(path_or_url: str) -> bool:
-    """http/https から始まる URL か判定"""
-    return path_or_url.startswith(("http://", "https://"))
-
-
-async def add_playlist_lazy(state: "MusicState", playlist_url: str,
-                            voice: discord.VoiceClient,
-                            channel: discord.TextChannel):
-    """プレイリストの曲を逐次取得してキューへ追加"""
-    task = asyncio.current_task()
-    loop = asyncio.get_event_loop()
-    info = await loop.run_in_executor(
-        None,
-        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
-            playlist_url, download=False)
-    )
-    entries = info.get("entries", [])
-    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
-    for ent in entries:
-        if task.cancelled() or not voice.is_connected():
-            break
-        url = ent.get("url")
-        if not url:
-            continue
-        try:
-            tracks = await loop.run_in_executor(None, yt_extract, url)
-        except Exception as e:
-            print(f"取得失敗 ({url}): {e}")
-            continue
-        if not tracks:
-            continue
-        state.queue.append(tracks[0])
-        await refresh_queue(state)
-        if not voice.is_playing() and not state.play_next.is_set():
-            client.loop.create_task(state.player_loop(voice, channel))
-    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
-
-
-def is_playlist_url(url: str) -> bool:
-    """URL に playlist パラメータが含まれるか簡易判定"""
-    try:
-        qs = parse_qs(urlparse(url).query)
-        return 'list' in qs
-    except Exception:
-        return False
-
-
-def is_http_source(path_or_url: str) -> bool:
-    """http/https から始まる URL か判定"""
-    return path_or_url.startswith(("http://", "https://"))
-
-
-async def add_playlist_lazy(state: "MusicState", playlist_url: str,
-                            voice: discord.VoiceClient,
-                            channel: discord.TextChannel):
-    """プレイリストの曲を逐次取得してキューへ追加"""
-    task = asyncio.current_task()
-    loop = asyncio.get_event_loop()
-    info = await loop.run_in_executor(
-        None,
-        lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
-            playlist_url, download=False)
-    )
-    entries = info.get("entries", [])
-    await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
-    for ent in entries:
-        if task.cancelled() or not voice.is_connected():
-            break
-        url = ent.get("url")
-        if not url:
-            continue
-        try:
-            tracks = await loop.run_in_executor(None, yt_extract, url)
-        except Exception as e:
-            print(f"取得失敗 ({url}): {e}")
-            continue
-        if not tracks:
-            continue
-        state.queue.append(tracks[0])
-        await refresh_queue(state)
-        if not voice.is_playing() and not state.play_next.is_set():
-            client.loop.create_task(state.player_loop(voice, channel))
-    await channel.send(f"✅ プレイリストの読み込みが完了しました ({len(entries)}曲)", delete_after=10)
-
-
-def is_playlist_url(url: str) -> bool:
-    """URL に playlist パラメータが含まれるか簡易判定"""
-    try:
-        qs = parse_qs(urlparse(url).query)
-        return 'list' in qs
-    except Exception:
-        return False
 
 
 def is_http_url(url: str) -> bool:
