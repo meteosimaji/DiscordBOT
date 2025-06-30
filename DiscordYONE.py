@@ -1,4 +1,4 @@
-import os, re, time, random, discord, tempfile, logging, datetime
+import os, re, time, random, discord, tempfile, logging, datetime, asyncio
 from discord import app_commands
 from openai import OpenAI
 from urllib.parse import urlparse, parse_qs
@@ -163,7 +163,9 @@ class TranscriptionSink(voice_recv.AudioSink):
             return
         wf, path = self.user_files.pop(uid)
         wf.close()
-        asyncio.create_task(self.process_file(member, path))
+        asyncio.run_coroutine_threadsafe(
+            self.process_file(member, path), client.loop
+        )
 
     async def process_file(self, member: discord.Member, path: str):
         text = None
