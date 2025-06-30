@@ -167,6 +167,7 @@ class TranscriptionSink(voice_recv.AudioSink):
 
     async def process_file(self, member: discord.Member, path: str):
         text = None
+        tts_path = None
         try:
             with open(path, "rb") as f:
                 text = openai_client.audio.transcriptions.create(
@@ -175,34 +176,49 @@ class TranscriptionSink(voice_recv.AudioSink):
                     language="ja",
                 )
             text = text.strip()
+
+            chan_id = transcript_channels.get(member.guild.id)
+            if chan_id:
+                ch = client.get_channel(chan_id)
+                if ch:
+                    try:
+                        await ch.send(f"**{member.display_name}:** {text}")
+                    except Exception as e:
+                        logger.error(f"Send transcript error: {e}")
+
+            if reading_channels.get(member.guild.id):
+                try:
+                    resp = openai_client.audio.speech.create(
+                        model="tts-1",
+                        voice="shimmer",
+                        input=text,
+                    )
+                    tts_path = f"tts_{member.id}_{int(time.time())}.wav"
+                    with open(tts_path, "wb") as fp:
+                        fp.write(resp.content)
+                    vc = member.guild.voice_client
+                    if vc and vc.is_connected():
+                        vc.play(
+                            discord.FFmpegPCMAudio(tts_path),
+                            after=lambda _: os.remove(tts_path),
+                        )
+                    else:
+                        os.remove(tts_path)
+                        tts_path = None
+                except Exception as e:
+                    logger.error(f"TTS error: {e}")
+                    if tts_path and os.path.exists(tts_path):
+                        os.remove(tts_path)
+                        tts_path = None
         except Exception as e:
             logger.error(f"Transcription error: {e}")
-            return
-
-        chan_id = transcript_channels.get(member.guild.id)
-        if chan_id:
-            ch = client.get_channel(chan_id)
-            if ch:
-                try:
-                    await ch.send(f"**{member.display_name}:** {text}")
-                except Exception as e:
-                    logger.error(f"Send transcript error: {e}")
-
-        if reading_channels.get(member.guild.id):
+        finally:
             try:
-                resp = openai_client.audio.speech.create(
-                    model="tts-1",
-                    voice="shimmer",
-                    input=text,
+                os.remove(path)
+            except Exception:
+                logger.warning(
+                    f"Error removing audio file for {member.id}", exc_info=True
                 )
-                tts_path = f"tts_{member.id}_{int(time.time())}.wav"
-                with open(tts_path, "wb") as fp:
-                    fp.write(resp.content)
-                vc = member.guild.voice_client
-                if vc and vc.is_connected():
-                    vc.play(discord.FFmpegPCMAudio(tts_path))
-            except Exception as e:
-                logger.error(f"TTS error: {e}")
 
 
     def cleanup(self) -> None:
