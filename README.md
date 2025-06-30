@@ -74,7 +74,8 @@ Discord の入力欄で `/` を入力し、コマンド名を選択します。
    ```bash
    pip install -r requirements.txt
    ```
-3. Discord の Bot トークンを `token.txt` に、OpenAI API キーを `OPENAIKEY.txt` に保存します。
+3. `DISCORD_TOKEN` と `OPENAI_API_KEY` 環境変数に、それぞれ Bot トークンと OpenAI API キーを設定します。
+   ファイルに平文で保存する代わりに環境変数を用いることで、認証情報をリポジトリへ誤って登録するのを防げます。
 4. 音楽再生には `ffmpeg` が必要です。システムにインストールしてから下記を実行してください。
    ```bash
    python DiscordYONE.py
