@@ -257,6 +257,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
     """プレイリストの曲を逐次取得してキューへ追加"""
+    task = asyncio.current_task()
     loop = asyncio.get_event_loop()
     info = await loop.run_in_executor(
         None,
@@ -266,9 +267,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
     entries = info.get("entries", [])
     await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
     for ent in entries:
-        if task and task.cancelled():
-            break
-        if not voice.is_connected():
+        if task.cancelled() or not voice.is_connected():
             break
         url = ent.get("url")
         if not url:
@@ -305,6 +304,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
     """プレイリストの曲を逐次取得してキューへ追加"""
+    task = asyncio.current_task()
     loop = asyncio.get_event_loop()
     info = await loop.run_in_executor(
         None,
@@ -314,6 +314,8 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
     entries = info.get("entries", [])
     await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
     for ent in entries:
+        if task.cancelled() or not voice.is_connected():
+            break
         url = ent.get("url")
         if not url:
             continue
@@ -349,6 +351,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
     """プレイリストの曲を逐次取得してキューへ追加"""
+    task = asyncio.current_task()
     loop = asyncio.get_event_loop()
     info = await loop.run_in_executor(
         None,
@@ -358,6 +361,8 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
     entries = info.get("entries", [])
     await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
     for ent in entries:
+        if task.cancelled() or not voice.is_connected():
+            break
         url = ent.get("url")
         if not url:
             continue
@@ -422,6 +427,8 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
         return
     await channel.send(f"⏱️ プレイリストを読み込み中... ({len(entries)}曲)")
     for ent in entries:
+        if task.cancelled() or not voice.is_connected():
+            break
         url = ent.get("url")
         if not url:
             continue
