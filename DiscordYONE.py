@@ -16,6 +16,17 @@ with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# ───────────────── Voice Transcription / TTS ─────────────────
+from discord.ext import voice_recv
+import wave
+
+# 読み上げ有効サーバー {guild_id: True}
+reading_channels: dict[int, bool] = {}
+# 文字起こし送信先 {guild_id: channel_id}
+transcript_channels: dict[int, int] = {}
+# 現在 VC で使用中の AudioSink {guild_id: TranscriptionSink}
+active_sinks: dict[int, voice_recv.AudioSink] = {}
+
 # ───────────────── Logger ─────────────────
 handler = RotatingFileHandler('bot.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
 logging.basicConfig(level=logging.INFO, handlers=[handler])
@@ -105,6 +116,80 @@ YTDL_OPTS = {
     "format": "bestaudio[ext=m4a]/bestaudio/best",
     "default_search": "ytsearch",
 }
+
+# ───────────────── Voice Transcription Sink ─────────────────
+class TranscriptionSink(voice_recv.AudioSink):
+    def __init__(self, guild_id: int):
+        super().__init__()
+        self.guild_id = guild_id
+        self.user_files: dict[int, tuple[wave.Wave_write, str]] = {}
+
+    def wants_opus(self) -> bool:
+        return False  # receive PCM
+
+    def write(self, data: voice_recv.VoiceData):
+        member = data.member
+        if member is None or data.pcm is None:
+            return
+        uid = member.id
+        if uid not in self.user_files:
+            filename = f"tmp_{uid}_{int(time.time())}.wav"
+            wf = wave.open(filename, "wb")
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(48000)
+            self.user_files[uid] = (wf, filename)
+        wf, _ = self.user_files[uid]
+        wf.writeframes(data.pcm)
+
+    @voice_recv.AudioSink.listener()
+    def on_voice_member_speaking_stop(self, member: discord.Member):
+        uid = member.id
+        if uid not in self.user_files:
+            return
+        wf, path = self.user_files.pop(uid)
+        wf.close()
+        asyncio.create_task(self.process_file(member, path))
+
+    async def process_file(self, member: discord.Member, path: str):
+        text = None
+        try:
+            with open(path, "rb") as f:
+                text = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language="ja",
+                )
+            text = text.strip()
+        except Exception as e:
+            logger.error(f"Transcription error: {e}")
+            return
+
+        chan_id = transcript_channels.get(member.guild.id)
+        if chan_id:
+            ch = client.get_channel(chan_id)
+            if ch:
+                try:
+                    await ch.send(f"**{member.display_name}:** {text}")
+                except Exception as e:
+                    logger.error(f"Send transcript error: {e}")
+
+        if reading_channels.get(member.guild.id):
+            try:
+                resp = openai_client.audio.speech.create(
+                    model="tts-1",
+                    voice="shimmer",
+                    input=text,
+                )
+                tts_path = f"tts_{uid}_{int(time.time())}.wav"
+                with open(tts_path, "wb") as fp:
+                    fp.write(resp.content)
+                vc = member.guild.voice_client
+                if vc and vc.is_connected():
+                    vc.play(discord.FFmpegPCMAudio(tts_path))
+            except Exception as e:
+                logger.error(f"TTS error: {e}")
+
 
 @dataclass
 class Track:
@@ -744,6 +829,27 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
             "⚠️ VC への接続に失敗しました。もう一度試してね！",
             delete_after=5
         )
+        return None
+
+async def ensure_voice_recv(msg: discord.Message) -> discord.VoiceClient | None:
+    """VoiceRecvClient で VC 接続"""
+    if msg.author.voice is None or msg.author.voice.channel is None:
+        await msg.reply("🎤 まず VC に入室してからコマンドを実行してね！")
+        return None
+
+    voice = msg.guild.voice_client
+    if voice and voice.is_connected():
+        if not isinstance(voice, voice_recv.VoiceRecvClient):
+            await voice.disconnect()
+            voice = None
+    if voice:
+        if voice.channel != msg.author.voice.channel:
+            await voice.move_to(msg.author.voice.channel)
+        return voice
+    try:
+        return await msg.author.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
+    except Exception:
+        await msg.reply("⚠️ VC への接続に失敗しました。", delete_after=5)
         return None
 
 # ──────────── 🎵  Queue UI ここから ────────────
@@ -1532,6 +1638,50 @@ async def cmd_purge(msg: discord.Message, arg: str):
     await msg.channel.send(f"🧹 {deleted_total}件削除しました！")
 
 
+async def cmd_yomiage(msg: discord.Message):
+    guild_id = msg.guild.id
+    if reading_channels.get(guild_id):
+        reading_channels.pop(guild_id, None)
+        if guild_id not in transcript_channels:
+            vc = msg.guild.voice_client
+            if vc and isinstance(vc, voice_recv.VoiceRecvClient) and vc.is_listening():
+                vc.stop_listening()
+        await msg.channel.send("📢 読み上げ機能を無効にしました。")
+        return
+
+    vc = await ensure_voice_recv(msg)
+    if not vc:
+        return
+    reading_channels[guild_id] = True
+    if not vc.is_listening():
+        sink = TranscriptionSink(guild_id)
+        active_sinks[guild_id] = sink
+        vc.listen(sink)
+    await msg.channel.send("📢 読み上げ機能を有効にしました。")
+
+
+async def cmd_mojiokosi(msg: discord.Message):
+    guild_id = msg.guild.id
+    if guild_id in transcript_channels:
+        transcript_channels.pop(guild_id, None)
+        if guild_id not in reading_channels:
+            vc = msg.guild.voice_client
+            if vc and isinstance(vc, voice_recv.VoiceRecvClient) and vc.is_listening():
+                vc.stop_listening()
+        await msg.channel.send("💬 文字起こしを無効にしました。")
+        return
+
+    vc = await ensure_voice_recv(msg)
+    if not vc:
+        return
+    transcript_channels[guild_id] = msg.channel.id
+    if not vc.is_listening():
+        sink = TranscriptionSink(guild_id)
+        active_sinks[guild_id] = sink
+        vc.listen(sink)
+    await msg.channel.send("💬 このチャンネルで文字起こしを行います。")
+
+
 # ──────────── 🎵  自動切断ハンドラ ────────────
 
 @client.event
@@ -1585,6 +1735,8 @@ async def cmd_help(msg: discord.Message):
         "\n"
         "🤖 AI/ツール\n"
         "y? <質問> / /gpt <質問> … ChatGPT（GPT-4.1）で質問や相談ができるAI回答\n"
+        "y!yomiage / /yomiage … VCの発言を読み上げ\n"
+        "y!mojiokosi / /mojiokosi … 発言を文字起こし\n"
         "\n"
         "🧑 ユーザー情報\n"
         "y!user <@メンション|ID> / /user [ユーザー] … プロフィール表示\n"
@@ -1854,6 +2006,26 @@ async def sc_stop(itx: discord.Interaction):
     try:
         await itx.response.defer()
         await cmd_stop(SlashMessage(itx), "")
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="yomiage", description="VCの発言を読み上げ")
+async def sc_yomiage(itx: discord.Interaction):
+
+    try:
+        await itx.response.defer()
+        await cmd_yomiage(SlashMessage(itx))
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="mojiokosi", description="VCの発言を文字起こし")
+async def sc_mojiokosi(itx: discord.Interaction):
+
+    try:
+        await itx.response.defer()
+        await cmd_mojiokosi(SlashMessage(itx))
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2291,3 +2463,5 @@ async def on_message(msg: discord.Message):
     elif cmd == "forward": await cmd_forward(msg, arg)
     elif cmd == "server": await cmd_server(msg)
     elif cmd == "purge":await cmd_purge(msg, arg)
+    elif cmd == "yomiage": await cmd_yomiage(msg)
+    elif cmd == "mojiokosi": await cmd_mojiokosi(msg)
