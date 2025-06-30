@@ -5,6 +5,7 @@ from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 
 from dataclasses import dataclass
+from typing import Any
 
 # ───────────────── TOKEN / KEY ─────────────────
 with open("token.txt", "r", encoding="utf-8") as f:
@@ -306,6 +307,11 @@ def parse_urls_and_text(query: str) -> tuple[list[str], str]:
     urls = re.findall(r"https?://\S+", query)
     text = re.sub(r"https?://\S+", "", query).strip()
     return urls, text
+
+
+def split_by_commas(text: str) -> list[str]:
+    """カンマ区切りで分割し、空要素は除外"""
+    return [t.strip() for t in text.split(",") if t.strip()]
 
 
 async def add_playlist_lazy(state: "MusicState", playlist_url: str,
@@ -1188,7 +1194,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 
 # ──────────── 🎵  コマンド郡 ────────────
 
-async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool = False):
+async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool = False, split_commas: bool = False):
     """曲をキューに追加して再生を開始
 
     Parameters
@@ -1201,9 +1207,9 @@ async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool =
         True のとき query → 添付ファイルの順で追加する
         False のときは従来通り添付ファイル → query
     """
-    urls, text_query = parse_urls_and_text(query)
+    queries = split_by_commas(query) if split_commas else ([query.strip()] if query.strip() else [])
     attachments = msg.attachments
-    if not urls and not text_query and not attachments:
+    if not queries and not attachments:
         await msg.reply("URLまたは添付ファイルを指定してね！")
         return
 
@@ -1222,29 +1228,29 @@ async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool =
 
     def handle_query() -> None:
         nonlocal playlist_handled, tracks_query
-        # URL 部分の処理
-        for u in urls:
-            if is_playlist_url(u):
-                state.playlist_task = client.loop.create_task(
-                    add_playlist_lazy(state, u, voice, msg.channel)
-                )
-                playlist_handled = True
-            else:
+        for q in queries:
+            urls, text_query = parse_urls_and_text(q)
+            for u in urls:
+                if is_playlist_url(u):
+                    state.playlist_task = client.loop.create_task(
+                        add_playlist_lazy(state, u, voice, msg.channel)
+                    )
+                    playlist_handled = True
+                else:
+                    try:
+                        tracks_query += yt_extract(u)
+                    except Exception:
+                        client.loop.create_task(
+                            msg.reply("URLから曲を取得できませんでした。", delete_after=5)
+                        )
+
+            if text_query:
                 try:
-                    tracks_query += yt_extract(u)
+                    tracks_query += yt_extract(text_query)
                 except Exception:
                     client.loop.create_task(
                         msg.reply("URLから曲を取得できませんでした。", delete_after=5)
                     )
-
-        # 残りテキストを検索
-        if text_query:
-            try:
-                tracks_query += yt_extract(text_query)
-            except Exception:
-                client.loop.create_task(
-                    msg.reply("URLから曲を取得できませんでした。", delete_after=5)
-                )
 
     async def handle_attachments() -> None:
         nonlocal tracks_attach
@@ -1563,7 +1569,8 @@ async def on_voice_state_update(member, before, after):
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "🎵 音楽機能\n"
-        "y!play / /play … 曲を再生キューに追加（検索キーワード・URL・音声ファイル対応。複数ファイル同時追加OK）\n"
+        "y!play … 添付ファイルを先に、テキストはカンマ区切りで順に追加\n"
+        "/play … query/file 引数を入力した順に追加 (query 内のカンマは分割されません)\n"
         "y!queue / /queue … キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）\n"
         "y!remove <番号> / /remove <番号> … 指定した曲をキューから削除\n"
         "y!keep <番号> / /keep <番号> … 指定番号以外の曲をまとめて削除\n"
@@ -1705,12 +1712,58 @@ async def sc_gpt(itx: discord.Interaction, text: str):
 
 
 @tree.command(name="play", description="曲を再生キューに追加")
-@app_commands.describe(query="URLや検索キーワード", file="(任意)添付ファイル")
-async def sc_play(itx: discord.Interaction, query: str | None = None, file: discord.Attachment | None = None):
+@app_commands.describe(
+    query1="URLや検索キーワード",
+    file1="(任意)添付ファイル",
+    query2="追加のキーワードまたはURL",
+    file2="追加の添付ファイル",
+    query3="追加のキーワードまたはURL",
+    file3="追加の添付ファイル",
+)
+async def sc_play(
+    itx: discord.Interaction,
+    query1: str | None = None,
+    file1: discord.Attachment | None = None,
+    query2: str | None = None,
+    file2: discord.Attachment | None = None,
+    query3: str | None = None,
+    file3: discord.Attachment | None = None,
+):
     try:
         await itx.response.defer()
-        msg = SlashMessage(itx, [file] if file else [])
-        await cmd_play(msg, query or "", first_query=True)
+        opts = itx.data.get("options", [])
+        values = {
+            "query1": query1,
+            "file1": file1,
+            "query2": query2,
+            "file2": file2,
+            "query3": query3,
+            "file3": file3,
+        }
+        att_map = {att.id: att for att in itx.attachments}
+        order: list[tuple[str, Any]] = []
+        for op in opts:
+            name = op.get("name")
+            if name.startswith("query") and values.get(name):
+                order.append(("query", values[name]))
+            elif name.startswith("file"):
+                att = values.get(name)
+                if att is None and isinstance(op.get("value"), str):
+                    att = att_map.get(int(op["value"]))
+                if att:
+                    order.append(("file", att))
+        if not order:
+            if query1:
+                order.append(("query", query1))
+            for att in itx.attachments:
+                order.append(("file", att))
+        for kind, val in order:
+            if kind == "query":
+                msg = SlashMessage(itx)
+                await cmd_play(msg, val, first_query=True)
+            else:
+                msg = SlashMessage(itx, [val])
+                await cmd_play(msg, "", first_query=False)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2229,7 +2282,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "dice": await cmd_dice(msg, arg or "1d100")
     elif cmd == "gpt":  await cmd_gpt(msg, arg)
     elif cmd == "help": await cmd_help(msg)
-    elif cmd == "play": await cmd_play(msg, arg)
+    elif cmd == "play": await cmd_play(msg, arg, split_commas=True)
     elif cmd == "queue":await cmd_queue(msg, arg)
     elif cmd == "remove":await cmd_remove(msg, arg)
     elif cmd == "keep": await cmd_keep(msg, arg)
