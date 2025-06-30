@@ -27,7 +27,8 @@ YoneRai Discord Bot は、音楽再生、翻訳、AI 質問などの機能を備
 - **AI 質問**: `y? <質問>` / `/gpt <質問>` — GPT‑4.1 が Web 検索や Python 実行を用いて回答。
 
 ### 🧑 ユーザー情報
-- `y!user <ID>` / `/user <ID>` — 指定ユーザーのプロフィール表示。
+- `y!user <@メンション|ID>` / `/user [ユーザー]` — 指定ユーザーの詳細情報をEmbedで表示します。
+- `y!server` / `/server` — このサーバーの詳細情報をEmbedで表示します。
 
 ### 🕹️ その他
 - `y!ping` / `/ping` — 応答速度表示。

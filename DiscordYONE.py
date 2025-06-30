@@ -1,4 +1,4 @@
-import os, re, time, random, discord, tempfile, logging
+import os, re, time, random, discord, tempfile, logging, datetime
 from discord import app_commands
 from openai import OpenAI
 from urllib.parse import urlparse, parse_qs
@@ -981,27 +981,78 @@ async def cmd_date(msg: discord.Message, arg: str):
     ts = int(arg) if arg.isdecimal() else int(time.time())
     await msg.channel.send(f"<t:{ts}:F>")              # 例：2025年6月28日 土曜日 15:30
 
+async def build_user_embed(target: discord.User | discord.Member,
+                           member: discord.Member | None,
+                           channel: discord.abc.Messageable) -> discord.Embed:
+    embed = discord.Embed(title="ユーザー情報", colour=0x2ecc71)
+    embed.set_thumbnail(url=target.display_avatar.url)
+
+    # 基本情報
+    embed.add_field(name="表示名", value=target.display_name, inline=False)
+    tag = f"{target.name}#{target.discriminator}" if target.discriminator != "0" else target.name
+    embed.add_field(name="Discordタグ", value=tag, inline=False)
+    embed.add_field(name="ID", value=str(target.id))
+    embed.add_field(name="BOTかどうか", value="✅" if target.bot else "❌")
+    embed.add_field(name="アカウント作成日",
+                    value=target.created_at.strftime('%Y年%m月%d日 %a %H:%M'),
+                    inline=False)
+
+    # サーバー固有
+    if member:
+        joined = member.joined_at.strftime('%Y年%m月%d日 %a %H:%M') if member.joined_at else '—'
+        embed.add_field(name="サーバー参加日", value=joined, inline=False)
+        embed.add_field(name="ステータス", value=str(member.status))
+        embed.add_field(name="デバイス別ステータス",
+                        value=f"PC:{member.desktop_status} / Mobile:{member.mobile_status} / Web:{member.web_status}",
+                        inline=False)
+        embed.add_field(name="ニックネーム", value=member.nick or '—')
+        roles = [r for r in member.roles if r.name != '@everyone']
+        embed.add_field(name="役職数", value=str(len(roles)))
+        embed.add_field(name="最高ロール", value=f"{member.top_role.name} {member.top_role.mention}")
+        perms = ", ".join([name for name, v in member.guild_permissions if v]) or '—'
+        embed.add_field(name="権限一覧", value=perms, inline=False)
+        vc = member.voice.channel.name if member.voice else '—'
+        embed.add_field(name="VC参加中", value=vc)
+    else:
+        embed.add_field(name="サーバー参加日", value='—', inline=False)
+        embed.add_field(name="ステータス", value='—')
+        embed.add_field(name="デバイス別ステータス", value='—', inline=False)
+        embed.add_field(name="ニックネーム", value='—')
+        embed.add_field(name="役職数", value='—')
+        embed.add_field(name="最高ロール", value='—')
+        embed.add_field(name="権限一覧", value='—', inline=False)
+        embed.add_field(name="VC参加中", value='—')
+
+    last = '—'
+    try:
+        async for m in channel.history(limit=100):
+            if m.author.id == target.id:
+                last = m.created_at.strftime('%Y年%m月%d日 %a %H:%M')
+                break
+    except Exception:
+        pass
+    embed.add_field(name="最後の発言", value=last, inline=False)
+    return embed
+
+
 async def cmd_user(msg: discord.Message, arg: str = ""):
-    """
-    y!user            … 呼び出し主
-    y!user @mention   … そのメンション先
-    y!user <ID>       … ユーザー ID 直指定
-    """
+    """ユーザー情報を表示"""
     arg = arg.strip()
+    if arg and len(arg.split()) > 1:
+        await msg.reply("ユーザーは1人だけ指定してください")
+        return
+
     target: discord.User | discord.Member
 
-    # ---------- 対象ユーザーを決める ----------
-    if not arg:                                  # 引数なし → 自分
+    if not arg:
         target = msg.author
-
-    elif arg.isdigit():                          # ユーザー ID
+    elif arg.isdigit():
         try:
             target = await client.fetch_user(int(arg))
         except discord.NotFound:
             await msg.reply("その ID のユーザーは見つかりませんでした。")
             return
-
-    elif arg.startswith("<@") and arg.endswith(">"):  # メンション
+    elif arg.startswith("<@") and arg.endswith(">"):
         uid = arg.removeprefix("<@").removeprefix("!").removesuffix(">")
         try:
             target = await client.fetch_user(int(uid))
@@ -1009,74 +1060,53 @@ async def cmd_user(msg: discord.Message, arg: str = ""):
             await msg.reply("そのユーザーは見つかりませんでした。")
             return
     else:
-        await msg.reply("`y!user` / `y!user @メンション` / `y!user 1234567890` の形式で指定してね！")
+        await msg.reply("`y!user @メンション` または `y!user 1234567890` の形式で指定してね！")
         return
 
-    # ---------- Guild 参加情報が取れるか ----------
     member: discord.Member | None = None
     if msg.guild:
-        # キャッシュをまず見る
         member = msg.guild.get_member(target.id)
-        # キャッシュに無ければ API で取得（権限があれば）
         if member is None:
             try:
                 member = await msg.guild.fetch_member(target.id)
             except discord.NotFound:
-                member = None   # DM 専用ユーザーなど
+                member = None
 
-    # ---------- Embed 生成 ----------
-    embed = discord.Embed(title="ユーザー情報", colour=0x2ecc71)
-    embed.set_thumbnail(url=target.display_avatar.url)
-
-    # 基本
-    embed.add_field(name="表示名", value=target.display_name, inline=False)
-    embed.add_field(name="名前", value=f"{target} (ID: `{target.id}`)", inline=False)
-    embed.add_field(name="BOTかどうか", value="✅" if target.bot else "❌")
-
-    # アカウント作成
-    embed.add_field(
-        name="アカウント作成日",
-        value=f"<t:{int(target.created_at.timestamp())}:F>",
-        inline=False
-    )
-
-    # ------ サーバー固有情報 ------
-    if member:
-        if member.joined_at:
-            embed.add_field(
-                name="サーバー参加日",
-                value=f"<t:{int(member.joined_at.timestamp())}:F>",
-                inline=False
-            )
-
-        # ステータス（Presence Intent が ON になっている必要あり）
-        status_map = {
-            discord.Status.online: "オンライン",
-            discord.Status.idle:   "退席中",
-            discord.Status.dnd:    "取り込み中",
-            discord.Status.offline:"オフライン / 非表示"
-        }
-        embed.add_field(
-            name="ステータス",
-            value=status_map.get(member.status, str(member.status)),
-            inline=True
-        )
-
-        # ロール
-        roles = [r for r in member.roles if r.name != "@everyone"]
-        if roles:
-            embed.add_field(name="ロール数", value=str(len(roles)), inline=True)
-            embed.add_field(name="最高ロール", value=roles[-1].mention, inline=True)
-
-        # Boost
-        if member.premium_since:
-            embed.add_field(
-                name="サーバーブースト中",
-                value=f"<t:{int(member.premium_since.timestamp())}:R>",
-                inline=True
-            )
-
+    embed = await build_user_embed(target, member, msg.channel)
     await msg.channel.send(embed=embed)
+
+async def cmd_server(msg: discord.Message):
+    """サーバー情報を表示"""
+    if not msg.guild:
+        await msg.reply("このコマンドはサーバー内専用です")
+        return
+
+    g = msg.guild
+    emb = discord.Embed(title="サーバー情報", colour=0x3498db)
+    if g.icon:
+        emb.set_thumbnail(url=g.icon.url)
+
+    emb.add_field(name="サーバー名", value=g.name, inline=False)
+    emb.add_field(name="ID", value=str(g.id))
+    if g.owner:
+        emb.add_field(name="オーナー", value=g.owner.mention, inline=False)
+    emb.add_field(name="作成日", value=g.created_at.strftime('%Y年%m月%d日'))
+    emb.add_field(name="メンバー数", value=str(g.member_count))
+    online = sum(1 for m in g.members if m.status != discord.Status.offline)
+    emb.add_field(name="オンライン数", value=str(online))
+    emb.add_field(name="テキストCH数", value=str(len(g.text_channels)))
+    emb.add_field(name="ボイスCH数", value=str(len(g.voice_channels)))
+    emb.add_field(name="役職数", value=str(len(g.roles)))
+    emb.add_field(name="絵文字数", value=str(len(g.emojis)))
+    emb.add_field(name="ブーストLv", value=str(g.premium_tier))
+    emb.add_field(name="ブースター数", value=str(g.premium_subscription_count))
+    emb.add_field(name="検証レベル", value=str(g.verification_level))
+    emb.add_field(name="AFKチャンネル", value=g.afk_channel.name if g.afk_channel else '—')
+    emb.add_field(name="バナーURL", value=g.banner.url if g.banner else '—', inline=False)
+    features = ", ".join(g.features) if g.features else '—'
+    emb.add_field(name="機能フラグ", value=features, inline=False)
+
+    await msg.channel.send(embed=emb)
 
 async def cmd_dice(msg: discord.Message, nota: str):
     m = re.fullmatch(r"(\d*)d(\d+)", nota, re.I)
@@ -1534,7 +1564,8 @@ async def cmd_help(msg: discord.Message):
         "y? <質問> / /gpt <質問> … ChatGPT（GPT-4.1）で質問や相談ができるAI回答\n"
         "\n"
         "🧑 ユーザー情報\n"
-        "y!user <id> / /user <id> … プロフィール表示\n"
+        "y!user <@メンション|ID> / /user [ユーザー] … プロフィール表示\n"
+        "y!server / /server … サーバー情報表示\n"
         "\n"
         "🕹️ その他\n"
         "y!ping / /ping … 応答速度\n"
@@ -1609,12 +1640,26 @@ async def sc_date(itx: discord.Interaction, timestamp: int | None = None):
 
 
 @tree.command(name="user", description="ユーザー情報を表示")
-@app_commands.describe(target="ユーザーIDまたはメンション")
-async def sc_user(itx: discord.Interaction, target: str = ""):
+@app_commands.describe(user="表示するユーザー")
+async def sc_user(itx: discord.Interaction, user: discord.User | None = None):
 
     try:
         await itx.response.defer()
-        await cmd_user(SlashMessage(itx), target)
+        target = user or itx.user
+        member = target if isinstance(target, discord.Member) else (itx.guild.get_member(target.id) if itx.guild else None)
+        emb = await build_user_embed(target, member, itx.channel)
+        await itx.followup.send(embed=emb)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="server", description="サーバー情報を表示")
+async def sc_server(itx: discord.Interaction):
+
+    try:
+        await itx.response.defer()
+        msg = SlashMessage(itx)
+        await cmd_server(msg)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2175,4 +2220,5 @@ async def on_message(msg: discord.Message):
     elif cmd == "seek": await cmd_seek(msg, arg)
     elif cmd == "rewind": await cmd_rewind(msg, arg)
     elif cmd == "forward": await cmd_forward(msg, arg)
+    elif cmd == "server": await cmd_server(msg)
     elif cmd == "purge":await cmd_purge(msg, arg)
