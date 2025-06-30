@@ -1,3 +1,4 @@
 discord.py
 openai>=1.0
 yt-dlp
+discord-ext-voice-recv
