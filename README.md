@@ -1,76 +1,67 @@
 # YoneRai Discord Bot
-概要
-YoneRai Discord Botは、音楽再生・AI質問・翻訳・各種便利コマンドを搭載した多機能BOTです。
-「/コマンド」または「y!コマンド」で直感的に使えるよう設計されています。
 
-主な機能
-🎵 音楽機能
-再生:
-y!play / /play … 曲やプレイリストを追加
-/playはquery省略可・file引数で音楽ファイルも添付OK、指定順にキュー追加
+## 概要
+YoneRai Discord Bot は、音楽再生、翻訳、AI 質問などの機能を備えた多目的 Bot です。`y!` や `y?` で始まるテキストコマンド、または Discord のスラッシュコマンドから操作できます。
 
-キュー管理:
-y!queue / /queue … キューの表示・操作
-y!remove / /remove … 指定曲の削除
-y!keep / /keep … 指定番号以外の一括削除
-y!stop / /stop … VC退出
+## 主な機能
 
-💬 翻訳機能
-メッセージに国旗リアクションを付けるだけで自動翻訳
+### 🎵 音楽
+- **再生**: `y!play` / `/play` — 曲やプレイリストを追加。
+  - `/play` は `query` 省略可。`file:` オプションで音楽ファイルの添付も可能。
+- **キュー表示・操作**: `y!queue` / `/queue`
+  - Skip / Shuffle / Loop / Pause / Resume / Leave などをボタンで操作。
+- **曲削除**: `y!remove <番号>` / `/remove <番号>`
+- **一括削除**: `y!keep <番号>` / `/keep <番号>` で指定番号以外の曲を削除。
+- **退出**: `y!stop` / `/stop`
 
-🤖 AI/ツール
-AI質問:
-y? <質問> / /gpt <質問> … ChatGPT（GPT-4.1）がWeb検索・Python実行で答えます
+### 💬 翻訳
+- メッセージに国旗リアクションを付けると自動で翻訳を返信。
 
-🧑 ユーザー情報
-y!user <id> / /user <id> … プロフィール表示
+### 🤖 AI / ツール
+- **AI 質問**: `y? <質問>` / `/gpt <質問>` — GPT‑4.1 が Web 検索や Python 実行を用いて回答。
 
-🕹️ その他
-y!ping / /ping … 応答速度
+### 🧑 ユーザー情報
+- `y!user <ID>` / `/user <ID>` — 指定ユーザーのプロフィール表示。
 
-y!say <text> / /say … エコー
+### 🕹️ その他
+- `y!ping` / `/ping` — 応答速度表示。
+- `y!say <text>` / `/say` — テキストを Bot が発言。
+- `y!date [timestamp]` / `/date` — 日時を Discord 形式で表示。
+- `y!XdY` / `/dice` — ダイスロール（例: `2d6`）。
+- `y!purge <n|link>` / `/purge` — メッセージを一括削除。
+- `y!help` / `/help` — コマンド一覧を表示。
+- `y!?` — 返信で使用するとメッセージを名言カード化。
 
-y!date / /date … 日時表示（/dateはtimestampオプションもOK）
+## 使い方
 
-y!XdY / /dice … ダイス（例: 2d6）
-
-y!purge <n|link> / /purge … メッセージ一括削除
-
-y!help / /help … このヘルプ
-
-y!? … 返信で使うと名言化
-
-使い方
-テキストコマンド
-メッセージの先頭に y! や y? を付けて送信
+### テキストコマンド
+メッセージの先頭に `y!` または `y?` を付けて送信します。
 
 例:
+```
 y!play Never Gonna Give You Up
 y? 猫とは？
+```
 
-スラッシュコマンド
-Discordの入力欄で / を入力し、コマンドを選択
+### スラッシュコマンド
+Discord の入力欄で `/` を入力し、コマンド名を選択します。
 
 例:
+```
 /play
 /queue
 /remove 1 2 3
 /gpt 今日は何の日？
+```
 
-インストール・導入
-Python 3.10以上 推奨
-
-必要なライブラリをインストール
-
-nginx
-コピーする
-編集する
-pip install -r requirements.txt
-DiscordのBotトークン・OpenAIキーを用意してtoken.txt・OPENAIKEY.txtに保存
-
-DiscordYONE.pyを実行
-
-nginx
-コピーする
-編集する
-python DiscordYONE.py
+## インストール
+1. Python 3.10 以上を用意してください。
+2. 依存ライブラリをインストールします。
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Discord の Bot トークンを `token.txt` に、OpenAI API キーを `OPENAIKEY.txt` に保存します。
+4. 音楽再生には `ffmpeg` が必要です。システムにインストールしてから下記を実行してください。
+   ```bash
+   python DiscordYONE.py
+   ```
