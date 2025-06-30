@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from typing import Any
 
 # ───────────────── TOKEN / KEY ─────────────────
-with open("token.txt", "r", encoding="utf-8") as f:
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+with open(os.path.join(ROOT_DIR, "token.txt"), "r", encoding="utf-8") as f:
     TOKEN = f.read().strip()
 
-with open("OPENAIKEY.txt", "r", encoding="utf-8") as f:
+with open(os.path.join(ROOT_DIR, "OPENAIKEY.txt"), "r", encoding="utf-8") as f:
     OPENAI_API_KEY = f.read().strip()
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -2465,3 +2467,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "purge":await cmd_purge(msg, arg)
     elif cmd == "yomiage": await cmd_yomiage(msg)
     elif cmd == "mojiokosi": await cmd_mojiokosi(msg)
+
+# ───────────────── 起動 ─────────────────
+if __name__ == "__main__":
+    client.run(TOKEN)
