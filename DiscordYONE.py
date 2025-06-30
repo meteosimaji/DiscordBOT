@@ -163,7 +163,7 @@ class TranscriptionSink(voice_recv.AudioSink):
         text = ""
         try:
             async with openai_async.beta.realtime.connect(
-                model="gpt-4o-mini-transcribe",
+                model="gpt-4o-realtime-preview-2025-06-03",
                 extra_query={"intent": "transcription"},
             ) as conn:
                 await conn.transcription_session.update(
