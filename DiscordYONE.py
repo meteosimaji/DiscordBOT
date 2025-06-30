@@ -364,6 +364,51 @@ def fmt_time(sec: int) -> str:
         return f"{h}:{m:02d}:{s:02d}"
     return f"{m:02d}:{s:02d}"
 
+def parse_seek_time(text: str) -> int:
+    """文字列から秒数を取得 (hms または : 区切り)"""
+    t = text.lower().replace(" ", "")
+    if any(c in t for c in "hms"):
+        matches = re.findall(r"(\d+)([hms])", t)
+        if not matches or "".join(num+unit for num, unit in matches) != t:
+            raise ValueError
+        values = {}
+        for num, unit in matches:
+            if unit in values:
+                raise ValueError
+            values[unit] = int(num)
+        h = values.get("h", 0)
+        m = values.get("m", 0)
+        s = values.get("s", 0)
+        if h == m == s == 0:
+            raise ValueError
+        return h*3600 + m*60 + s
+    else:
+        clean = "".join(c for c in t if c.isdigit() or c == ":")
+        parts = clean.split(":")
+        if not (1 <= len(parts) <= 3):
+            raise ValueError
+        try:
+            nums = [int(x) for x in parts]
+        except Exception:
+            raise ValueError
+        while len(nums) < 3:
+            nums.insert(0, 0)
+        h, m, s = nums
+        return h*3600 + m*60 + s
+
+def fmt_time_jp(sec: int) -> str:
+    """秒数を日本語で表現"""
+    h, rem = divmod(int(sec), 3600)
+    m, s = divmod(rem, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}時間")
+    if m:
+        parts.append(f"{m}分")
+    if s or not parts:
+        parts.append(f"{s}秒")
+    return "".join(parts)
+
 def make_bar(pos: int, total: int, width: int = 15) -> str:
     if total <= 0:
         return "".ljust(width, "─")
@@ -387,6 +432,8 @@ class MusicState:
         self.pause_offset: float = 0.0
         self.is_paused: bool = False
         self.playlist_task: asyncio.Task | None = None
+        self.seek_to: int | None = None
+        self.seeking: bool = False
 
     async def player_loop(self, voice: discord.VoiceClient, channel: discord.TextChannel):
         """
@@ -413,11 +460,18 @@ class MusicState:
 
             # 再生準備
             self.current = self.queue[0]
+            seek_pos = self.seek_to
+            announce = not self.seeking
+            self.seek_to = None
+            self.seeking = False
             title, url = self.current.title, self.current.url
             self.is_paused = False
             self.pause_offset = 0
 
-            before_opts = (
+            before_opts = ""
+            if seek_pos is not None:
+                before_opts += f"-ss {seek_pos} "
+            before_opts += (
                 "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
                 if is_http_source(url) else ""
             )
@@ -425,7 +479,7 @@ class MusicState:
                 ffmpeg_audio = discord.FFmpegPCMAudio(
                     source=url,
                     executable="ffmpeg",
-                    before_options=before_opts,
+                    before_options=before_opts.strip(),
                     options='-vn -loglevel warning -af "volume=0.9"'
                 )
                 voice.play(ffmpeg_audio, after=lambda _: self.play_next.set())
@@ -446,13 +500,14 @@ class MusicState:
                 cleanup_track(self.queue.popleft())
                 continue
 
-            self.start_time = time.time()
+            self.start_time = time.time() - (seek_pos or 0)
 
 
 
 
             # チャット通知 & Embed 更新
-            await channel.send(f"▶️ **Now playing**: {title}")
+            if announce:
+                await channel.send(f"▶️ **Now playing**: {title}")
             await refresh_queue(self)
 
             progress_task = asyncio.create_task(progress_updater(self))
@@ -461,6 +516,9 @@ class MusicState:
             await self.play_next.wait()
             progress_task.cancel()
             self.start_time = None
+            if self.seek_to is not None:
+                await refresh_queue(self)
+                continue
 
             # ループOFFなら再生し終えた曲をキューから外す
             if self.loop == 0 and self.queue:
@@ -1246,6 +1304,34 @@ async def cmd_keep(msg: discord.Message, arg: str):
     await msg.channel.send(f"🗑️ {len(removed)}件削除しました！")
 
 
+async def cmd_seek(msg: discord.Message, arg: str):
+    arg = arg.strip()
+    if not arg:
+        await msg.reply("時間を指定してください。例：y!seek 2m30s")
+        return
+    try:
+        pos = parse_seek_time(arg)
+    except Exception:
+        await msg.reply("時間指定が不正です。例：1m30s, 2m, 1h2m3s, 120, 2:00, 0:02:00")
+        return
+
+    state = guild_states.get(msg.guild.id)
+    voice = msg.guild.voice_client
+    if not state or not state.current or not voice or not voice.is_connected():
+        await msg.reply("再生中の曲がありません")
+        return
+
+    if state.current.duration and pos >= state.current.duration:
+        dur = state.current.duration
+        await msg.reply(f"曲の長さは {dur//60}分{dur%60}秒です。短い時間を指定してください")
+        return
+
+    state.seek_to = pos
+    state.seeking = True
+    voice.stop()
+    await msg.channel.send(f"{fmt_time_jp(pos)}から再生します")
+
+
 async def cmd_purge(msg: discord.Message, arg: str):
     """指定数またはリンク以降のメッセージを一括削除"""
     if not msg.guild:
@@ -1374,7 +1460,7 @@ async def cmd_help(msg: discord.Message):
         "y!remove <番号> / /remove <番号> … 指定した曲をキューから削除\n"
         "y!keep <番号> / /keep <番号> … 指定番号以外の曲をまとめて削除\n"
         "y!stop / /stop … VCから退出\n"
-        "　※パネルが反応しない場合はもう一度実行！\n"
+        "y!seek <時間> / /seek <時間> … 再生位置を変更\n"
         "\n"
         "💬 翻訳機能\n"
         "国旗リアクションで自動翻訳\n"
@@ -1534,6 +1620,17 @@ async def sc_keep(itx: discord.Interaction, numbers: str):
     try:
         await itx.response.defer()
         await cmd_keep(SlashMessage(itx), numbers)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="seek", description="再生位置を指定")
+@app_commands.describe(position="例: 1m30s, 2:00")
+async def sc_seek(itx: discord.Interaction, position: str):
+
+    try:
+        await itx.response.defer()
+        await cmd_seek(SlashMessage(itx), position)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -1989,8 +2086,5 @@ async def on_message(msg: discord.Message):
     elif cmd == "queue":await cmd_queue(msg, arg)
     elif cmd == "remove":await cmd_remove(msg, arg)
     elif cmd == "keep": await cmd_keep(msg, arg)
+    elif cmd == "seek": await cmd_seek(msg, arg)
     elif cmd == "purge":await cmd_purge(msg, arg)
-
-
-# ───────────────── 起動 ─────────────────
-client.run(TOKEN)
