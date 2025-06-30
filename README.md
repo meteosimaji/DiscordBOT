@@ -12,6 +12,7 @@ YoneRai Discord Bot は、音楽再生、翻訳、AI 質問などの機能を備
   - Skip / Shuffle / Loop / Pause / Resume / Leave などをボタンで操作。
 - **曲削除**: `y!remove <番号>` / `/remove <番号>`
 - **一括削除**: `y!keep <番号>` / `/keep <番号>` で指定番号以外の曲を削除。
+- **シーク**: `y!seek <時間>` / `/seek <時間>` で指定位置から再生。
 - **退出**: `y!stop` / `/stop`
 
 ### 💬 翻訳
