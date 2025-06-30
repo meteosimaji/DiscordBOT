@@ -1123,6 +1123,12 @@ async def cmd_date(msg: discord.Message, arg: str):
 async def build_user_embed(target: discord.User | discord.Member,
                            member: discord.Member | None,
                            channel: discord.abc.Messageable) -> discord.Embed:
+    # Fetch the latest Member info for accurate presence
+    if member is not None:
+        try:
+            member = await member.guild.fetch_member(member.id)
+        except Exception:
+            pass
     embed = discord.Embed(title="ユーザー情報", colour=0x2ecc71)
     embed.set_thumbnail(url=target.display_avatar.url)
 
@@ -1204,12 +1210,10 @@ async def cmd_user(msg: discord.Message, arg: str = ""):
 
     member: discord.Member | None = None
     if msg.guild:
-        member = msg.guild.get_member(target.id)
-        if member is None:
-            try:
-                member = await msg.guild.fetch_member(target.id)
-            except discord.NotFound:
-                member = None
+        try:
+            member = await msg.guild.fetch_member(target.id)
+        except discord.NotFound:
+            member = None
 
     embed = await build_user_embed(target, member, msg.channel)
     await msg.channel.send(embed=embed)
