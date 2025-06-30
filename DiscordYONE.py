@@ -737,7 +737,7 @@ class YoneVoiceRecvClient(voice_recv.VoiceRecvClient):
                     logger.warning('Could not connect to voice... Retrying...')
                     continue
 
-async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
+async def ensure_voice(msg: discord.Message, self_deaf: bool = True) -> discord.VoiceClient | None:
     """発話者が入っている VC へ Bot を接続（既に接続済みならそれを返す）"""
     if msg.author.voice is None or msg.author.voice.channel is None:
         await msg.reply("🎤 まず VC に入室してからコマンドを実行してね！")
@@ -758,7 +758,7 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
             if msg.guild.voice_client and msg.guild.voice_client.is_connected():
                 return msg.guild.voice_client
             return await asyncio.wait_for(
-                msg.author.voice.channel.connect(self_deaf=True, cls=YoneVoiceRecvClient),
+                msg.author.voice.channel.connect(self_deaf=self_deaf, cls=YoneVoiceRecvClient),
                 timeout=10
             )
     except discord.errors.ConnectionClosed as e:
@@ -775,14 +775,14 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
 
 async def ensure_voice_recv(msg: discord.Message) -> discord.VoiceClient | None:
     """YoneVoiceRecvClient で VC 接続"""
-    voice = await ensure_voice(msg)
+    voice = await ensure_voice(msg, self_deaf=False)
     if not voice:
         return None
     if not isinstance(voice, voice_recv.VoiceRecvClient):
         try:
             await voice.disconnect()
         finally:
-            voice = await ensure_voice(msg)
+            voice = await ensure_voice(msg, self_deaf=False)
     return voice
 
 # ──────────── 🎵  Queue UI ここから ────────────
