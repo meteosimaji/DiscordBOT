@@ -10,22 +10,9 @@ from typing import Any
 # ───────────────── TOKEN / KEY ─────────────────
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Prefer environment variables; fall back to local files for compatibility
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    try:
-        with open(os.path.join(ROOT_DIR, "token.txt"), "r", encoding="utf-8") as f:
-            TOKEN = f.read().strip()
-    except FileNotFoundError:
-        TOKEN = ""
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    try:
-        with open(os.path.join(ROOT_DIR, "OPENAIKEY.txt"), "r", encoding="utf-8") as f:
-            OPENAI_API_KEY = f.read().strip()
-    except FileNotFoundError:
-        OPENAI_API_KEY = ""
+# Load credentials from environment variables
+TOKEN = os.getenv("DISCORD_TOKEN", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 

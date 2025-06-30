@@ -74,8 +74,9 @@ Discord の入力欄で `/` を入力し、コマンド名を選択します。
    ```bash
    pip install -r requirements.txt
    ```
-3. `DISCORD_TOKEN` と `OPENAI_API_KEY` 環境変数に、それぞれ Bot トークンと OpenAI API キーを設定します。
-   ファイルに平文で保存する代わりに環境変数を用いることで、認証情報をリポジトリへ誤って登録するのを防げます。
+3. ルートにある `.env.example` を `.env` にコピーし、`DISCORD_TOKEN` と `OPENAI_API_KEY` を設定します。
+   `.env` は `.gitignore` で除外されているため、**絶対にコミットしないでください**。
+   必要に応じて `source .env` などで環境変数を読み込んでください。
 4. 音楽再生には `ffmpeg` が必要です。システムにインストールしてから下記を実行してください。
    ```bash
    python DiscordYONE.py
