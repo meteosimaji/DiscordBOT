@@ -1,6 +1,6 @@
-import os, re, time, random, discord, tempfile, logging, datetime, asyncio
+import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base64
 from discord import app_commands
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 
@@ -15,6 +15,7 @@ TOKEN = os.getenv("DISCORD_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+openai_async = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # ───────────────── Voice Transcription / TTS ─────────────────
 from discord.ext import voice_recv
@@ -155,50 +156,45 @@ class TranscriptionSink(voice_recv.AudioSink):
         )
 
     async def process_file(self, member: discord.Member, path: str):
-        text = None
-        tts_path = None
+        text = ""
         try:
-            with open(path, "rb") as f:
-                resp = openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=f,
-                    language="ja",
+            async with openai_async.beta.realtime.connect(
+                model="gpt-4o-mini-transcribe",
+                extra_query={"intent": "transcription"},
+            ) as conn:
+                await conn.transcription_session.update(
+                    session={
+                        "input_audio_format": "pcm16",
+                        "input_audio_transcription": {
+                            "model": "gpt-4o-mini-transcribe",
+                            "language": "ja",
+                        },
+                        "turn_detection": {"type": "server_vad", "silence_duration_ms": 500},
+                    }
                 )
-            text = resp.text.strip()
+
+                with open(path, "rb") as f:
+                    while chunk := f.read(4096):
+                        await conn.input_audio_buffer.append(audio=base64.b64encode(chunk).decode())
+                await conn.input_audio_buffer.commit()
+
+                async for event in conn:
+                    if event.type == "conversation.item.input_audio_transcription.delta" and event.delta:
+                        text += event.delta
+                        await self._handle_transcribed_segment(member, event.delta)
+                    elif event.type == "conversation.item.input_audio_transcription.completed":
+                        if event.transcript:
+                            text += event.transcript
+                        break
 
             chan_id = transcript_channels.get(member.guild.id)
             if chan_id:
                 ch = client.get_channel(chan_id)
                 if ch:
                     try:
-                        await ch.send(f"**{member.display_name}:** {text}")
+                        await ch.send(f"**{member.display_name}:** {text.strip()}")
                     except Exception as e:
                         logger.error(f"Send transcript error: {e}")
-
-            if reading_channels.get(member.guild.id):
-                try:
-                    resp = openai_client.audio.speech.create(
-                        model="tts-1",
-                        voice="shimmer",
-                        input=text,
-                    )
-                    tts_path = f"tts_{member.id}_{int(time.time())}.wav"
-                    with open(tts_path, "wb") as fp:
-                        fp.write(resp.content)
-                    vc = member.guild.voice_client
-                    if vc and vc.is_connected():
-                        vc.play(
-                            discord.FFmpegPCMAudio(tts_path),
-                            after=lambda _: os.remove(tts_path),
-                        )
-                    else:
-                        os.remove(tts_path)
-                        tts_path = None
-                except Exception as e:
-                    logger.error(f"TTS error: {e}")
-                    if tts_path and os.path.exists(tts_path):
-                        os.remove(tts_path)
-                        tts_path = None
         except Exception as e:
             logger.error(f"Transcription error: {e}")
         finally:
@@ -208,6 +204,50 @@ class TranscriptionSink(voice_recv.AudioSink):
                 logger.warning(
                     f"Error removing audio file for {member.id}", exc_info=True
                 )
+
+    async def _handle_transcribed_segment(self, member: discord.Member, segment: str) -> None:
+        chan_id = transcript_channels.get(member.guild.id)
+        if chan_id:
+            ch = client.get_channel(chan_id)
+            if ch:
+                try:
+                    await ch.send(f"**{member.display_name}:** {segment}")
+                except Exception as e:
+                    logger.error(f"Send transcript error: {e}")
+
+        if reading_channels.get(member.guild.id):
+            vc = member.guild.voice_client
+            if vc and vc.is_connected():
+                await self._play_streaming_tts(vc, segment)
+
+    async def _play_streaming_tts(self, vc: discord.VoiceClient, text: str) -> None:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        path = tmp.name
+        tmp.close()
+
+        resp = openai_client.audio.speech.with_streaming_response.create(
+            model="gpt-4o-mini-tts",
+            voice="shimmer",
+            input=text,
+            instructions="Read the text naturally",
+            stream_format="audio",
+        )
+
+        def writer() -> None:
+            first = True
+            with open(path, "wb") as f:
+                for chunk in resp.iter_bytes():
+                    f.write(chunk)
+                    if first:
+                        first = False
+                        client.loop.call_soon_threadsafe(
+                            vc.play,
+                            discord.FFmpegPCMAudio(path),
+                            after=lambda _: os.remove(path),
+                        )
+            resp.close()
+
+        await asyncio.get_event_loop().run_in_executor(None, writer)
 
 
     def cleanup(self) -> None:
