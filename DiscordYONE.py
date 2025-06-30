@@ -172,12 +172,12 @@ class TranscriptionSink(voice_recv.AudioSink):
         tts_path = None
         try:
             with open(path, "rb") as f:
-                text = openai_client.audio.transcriptions.create(
+                resp = openai_client.audio.transcriptions.create(
                     model="whisper-1",
                     file=f,
                     language="ja",
                 )
-            text = text.strip()
+            text = resp.text.strip()
 
             chan_id = transcript_channels.get(member.guild.id)
             if chan_id:
