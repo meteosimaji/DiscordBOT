@@ -141,8 +141,8 @@ class TranscriptionSink(voice_recv.AudioSink):
     def wants_opus(self) -> bool:
         return False  # receive PCM
 
-    def write(self, data: voice_recv.VoiceData):
-        member = data.member
+    def write(self, user: discord.User | discord.Member | None, data: voice_recv.VoiceData):
+        member = user or data.source
         if member is None or data.pcm is None:
             return
         uid = member.id
