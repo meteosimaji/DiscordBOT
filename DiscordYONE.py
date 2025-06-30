@@ -695,6 +695,48 @@ class YoneVoiceClient(discord.VoiceClient):
                     logger.warning('Could not connect to voice... Retrying...')
                     continue
 
+
+class YoneVoiceRecvClient(voice_recv.VoiceRecvClient):
+    async def poll_voice_ws(self, reconnect: bool) -> None:
+        backoff = discord.utils.ExponentialBackoff()
+        while True:
+            try:
+                await self.ws.poll_event()
+            except (discord.errors.ConnectionClosed, asyncio.TimeoutError) as exc:
+                if isinstance(exc, discord.errors.ConnectionClosed):
+                    if exc.code in (1000, 4015):
+                        logger.info('Disconnecting from voice normally, close code %d.', exc.code)
+                        await self.disconnect()
+                        break
+                    if exc.code == 4014:
+                        logger.info('Disconnected from voice by force... potentially reconnecting.')
+                        successful = await self.potential_reconnect()
+                        if not successful:
+                            logger.info('Reconnect was unsuccessful, disconnecting from voice normally...')
+                            await self.disconnect()
+                            break
+                        else:
+                            continue
+                    if exc.code == 4022:
+                        last_4022[self.guild.id] = time.time()
+                        logger.warning('Received 4022, suppressing reconnect for 60s')
+                        await self.disconnect()
+                        break
+                if not reconnect:
+                    await self.disconnect()
+                    raise
+
+                retry = backoff.delay()
+                logger.exception('Disconnected from voice... Reconnecting in %.2fs.', retry)
+                self._connected.clear()
+                await asyncio.sleep(retry)
+                await self.voice_disconnect()
+                try:
+                    await self.connect(reconnect=True, timeout=self.timeout)
+                except asyncio.TimeoutError:
+                    logger.warning('Could not connect to voice... Retrying...')
+                    continue
+
 async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
     """発話者が入っている VC へ Bot を接続（既に接続済みならそれを返す）"""
     if msg.author.voice is None or msg.author.voice.channel is None:
@@ -716,7 +758,7 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
             if msg.guild.voice_client and msg.guild.voice_client.is_connected():
                 return msg.guild.voice_client
             return await asyncio.wait_for(
-                msg.author.voice.channel.connect(self_deaf=True, cls=YoneVoiceClient),
+                msg.author.voice.channel.connect(self_deaf=True, cls=YoneVoiceRecvClient),
                 timeout=10
             )
     except discord.errors.ConnectionClosed as e:
@@ -732,25 +774,16 @@ async def ensure_voice(msg: discord.Message) -> discord.VoiceClient | None:
         return None
 
 async def ensure_voice_recv(msg: discord.Message) -> discord.VoiceClient | None:
-    """VoiceRecvClient で VC 接続"""
-    if msg.author.voice is None or msg.author.voice.channel is None:
-        await msg.reply("🎤 まず VC に入室してからコマンドを実行してね！")
+    """YoneVoiceRecvClient で VC 接続"""
+    voice = await ensure_voice(msg)
+    if not voice:
         return None
-
-    voice = msg.guild.voice_client
-    if voice and voice.is_connected():
-        if not isinstance(voice, voice_recv.VoiceRecvClient):
+    if not isinstance(voice, voice_recv.VoiceRecvClient):
+        try:
             await voice.disconnect()
-            voice = None
-    if voice:
-        if voice.channel != msg.author.voice.channel:
-            await voice.move_to(msg.author.voice.channel)
-        return voice
-    try:
-        return await msg.author.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
-    except Exception:
-        await msg.reply("⚠️ VC への接続に失敗しました。", delete_after=5)
-        return None
+        finally:
+            voice = await ensure_voice(msg)
+    return voice
 
 # ──────────── 🎵  Queue UI ここから ────────────
 def make_embed(state: "MusicState") -> discord.Embed:
@@ -1569,7 +1602,7 @@ async def cmd_yomiage(msg: discord.Message):
         await msg.channel.send("📢 読み上げ機能を無効にしました。")
         return
 
-    vc = await ensure_voice_recv(msg)
+    vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
     if not vc:
         return
     reading_channels[guild_id] = True
@@ -1591,7 +1624,7 @@ async def cmd_mojiokosi(msg: discord.Message):
         await msg.channel.send("💬 文字起こしを無効にしました。")
         return
 
-    vc = await ensure_voice_recv(msg)
+    vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
     if not vc:
         return
     transcript_channels[guild_id] = msg.channel.id
