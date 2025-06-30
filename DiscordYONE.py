@@ -1093,8 +1093,19 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 
 # ──────────── 🎵  コマンド郡 ────────────
 
-async def cmd_play(msg: discord.Message, query: str):
-    """曲をキューに追加して再生を開始"""
+async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool = False):
+    """曲をキューに追加して再生を開始
+
+    Parameters
+    ----------
+    msg: discord.Message
+        コマンドを送信したメッセージ
+    query: str
+        URL や検索ワード (任意)
+    first_query: bool
+        True のとき query → 添付ファイルの順で追加する
+        False のときは従来通り添付ファイル → query
+    """
     args = query.split()
     attachments = msg.attachments
     if not args and not attachments:
@@ -1111,18 +1122,13 @@ async def cmd_play(msg: discord.Message, query: str):
         state.playlist_task.cancel()
         state.playlist_task = None
 
-    tracks: list[Track] = []
+    tracks_query: list[Track] = []
+    tracks_attach: list[Track] = []
 
-    if attachments:
-        try:
-            tracks += await attachments_to_tracks(attachments)
-        except Exception as e:
-            await msg.reply(f"添付ファイル取得エラー: {e}", delete_after=5)
+    def handle_query() -> None:
+        nonlocal playlist_handled, tracks_query
+        if not args:
             return
-
-
-    playlist_handled = False
-    if args:
         if len(args) == 1 and is_playlist_url(args[0]):
             state.playlist_task = client.loop.create_task(
                 add_playlist_lazy(state, args[0], voice, msg.channel)
@@ -1131,8 +1137,32 @@ async def cmd_play(msg: discord.Message, query: str):
         else:
             url_tracks = yt_extract_multiple(args)
             if not url_tracks:
-                await msg.reply("URLから曲を取得できませんでした。", delete_after=5)
-            tracks += url_tracks
+                client.loop.create_task(
+                    msg.reply("URLから曲を取得できませんでした。", delete_after=5)
+                )
+            tracks_query += url_tracks
+
+    async def handle_attachments() -> None:
+        nonlocal tracks_attach
+        if attachments:
+            try:
+                tracks_attach += await attachments_to_tracks(attachments)
+            except Exception as e:
+                await msg.reply(f"添付ファイル取得エラー: {e}", delete_after=5)
+                raise
+
+    playlist_handled = False
+    if first_query:
+        handle_query()
+        await handle_attachments()
+    else:
+        await handle_attachments()
+        handle_query()
+
+    if not tracks_query and not tracks_attach and not playlist_handled:
+        return
+
+    tracks = (tracks_query + tracks_attach) if first_query else (tracks_attach + tracks_query)
 
     if not tracks and not playlist_handled:
         return
@@ -1339,7 +1369,7 @@ async def on_voice_state_update(member, before, after):
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "🎵 音楽機能\n"
-        "y!play / /play … 曲やプレイリストを追加（/playはfile:引数でファイル添付OK）\n"
+        "y!play / /play … 曲やプレイリストを追加（/playはquery省略可・file:引数でファイル添付OK、指定順に追加）\n"
         "y!queue / /queue … キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）\n"
         "y!remove <番号> / /remove <番号> … 指定した曲をキューから削除\n"
         "y!keep <番号> / /keep <番号> … 指定番号以外の曲をまとめて削除\n"
@@ -1464,11 +1494,11 @@ async def sc_gpt(itx: discord.Interaction, text: str):
 
 @tree.command(name="play", description="曲を再生キューに追加")
 @app_commands.describe(query="URLや検索キーワード", file="(任意)添付ファイル")
-async def sc_play(itx: discord.Interaction, query: str, file: discord.Attachment | None = None):
+async def sc_play(itx: discord.Interaction, query: str | None = None, file: discord.Attachment | None = None):
     try:
         await itx.response.defer()
         msg = SlashMessage(itx, [file] if file else [])
-        await cmd_play(msg, query)
+        await cmd_play(msg, query or "", first_query=True)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
