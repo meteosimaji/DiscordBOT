@@ -1,4 +1,4 @@
-discord.py
-openai>=1.0
-yt-dlp
-discord-ext-voice-recv
+discord.py==2.5.2
+openai==1.93.0
+yt-dlp==2025.6.25
+discord-ext-voice-recv==0.5.2a179
