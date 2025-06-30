@@ -114,6 +114,7 @@ class SlashMessage:
         self.channel = _SlashChannel(interaction)
         self.guild = interaction.guild
         self.author = interaction.user
+        self.id = interaction.id
         self.attachments: list[discord.Attachment] = attachments or []
 
     async def reply(self, *args, **kwargs):
