@@ -76,7 +76,7 @@ Discord の入力欄で `/` を入力し、コマンド名を選択します。
    ```
 3. ルートにある `.env.example` を `.env` にコピーし、`DISCORD_TOKEN` と `OPENAI_API_KEY` を設定します。
    `.env` は `.gitignore` で除外されているため、**絶対にコミットしないでください**。
-   必要に応じて `source .env` などで環境変数を読み込んでください。
+   Bot は起動時に `.env` を自動で読み込むため、通常は `source .env` などを実行する必要はありません。
 4. 音楽再生には `ffmpeg` が必要です。システムにインストールしてから下記を実行してください。
    ```bash
    python DiscordYONE.py

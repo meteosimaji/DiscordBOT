@@ -3,12 +3,16 @@ from discord import app_commands
 from openai import OpenAI, AsyncOpenAI
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
+from dotenv import load_dotenv
 
 from dataclasses import dataclass
 from typing import Any
 
 # ───────────────── TOKEN / KEY ─────────────────
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load environment variables from .env if present
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 # Load credentials from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN", "")
