@@ -183,7 +183,7 @@ class TranscriptionSink(voice_recv.AudioSink):
                     voice="shimmer",
                     input=text,
                 )
-                tts_path = f"tts_{uid}_{int(time.time())}.wav"
+                tts_path = f"tts_{member.id}_{int(time.time())}.wav"
                 with open(tts_path, "wb") as fp:
                     fp.write(resp.content)
                 vc = member.guild.voice_client
