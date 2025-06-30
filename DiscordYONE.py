@@ -1332,6 +1332,68 @@ async def cmd_seek(msg: discord.Message, arg: str):
     await msg.channel.send(f"{fmt_time_jp(pos)}から再生します")
 
 
+async def cmd_rewind(msg: discord.Message, arg: str):
+    """現在位置から指定時間だけ巻き戻す"""
+    arg = arg.strip()
+    if arg:
+        try:
+            delta = parse_seek_time(arg)
+        except Exception:
+            await msg.reply("時間指定が不正です。例：10s, 1m, 1:00")
+            return
+    else:
+        delta = 10
+
+    state = guild_states.get(msg.guild.id)
+    voice = msg.guild.voice_client
+    if not state or not state.current or not voice or not voice.is_connected():
+        await msg.reply("再生中の曲がありません")
+        return
+
+    if state.start_time is not None:
+        cur = state.pause_offset if state.is_paused else time.time() - state.start_time
+    else:
+        cur = 0
+    cur = max(0, int(cur))
+    if state.current.duration:
+        cur = min(cur, state.current.duration)
+
+    new_pos = max(0, cur - delta)
+    await cmd_seek(msg, str(new_pos))
+
+
+async def cmd_forward(msg: discord.Message, arg: str):
+    """現在位置から指定時間だけ早送り"""
+    arg = arg.strip()
+    if arg:
+        try:
+            delta = parse_seek_time(arg)
+        except Exception:
+            await msg.reply("時間指定が不正です。例：10s, 1m, 1:00")
+            return
+    else:
+        delta = 10
+
+    state = guild_states.get(msg.guild.id)
+    voice = msg.guild.voice_client
+    if not state or not state.current or not voice or not voice.is_connected():
+        await msg.reply("再生中の曲がありません")
+        return
+
+    if state.start_time is not None:
+        cur = state.pause_offset if state.is_paused else time.time() - state.start_time
+    else:
+        cur = 0
+    cur = max(0, int(cur))
+    if state.current.duration:
+        cur = min(cur, state.current.duration)
+        new_pos = min(cur + delta, state.current.duration)
+    else:
+        new_pos = cur + delta
+
+    await cmd_seek(msg, str(new_pos))
+
+
 async def cmd_purge(msg: discord.Message, arg: str):
     """指定数またはリンク以降のメッセージを一括削除"""
     if not msg.guild:
@@ -1461,6 +1523,9 @@ async def cmd_help(msg: discord.Message):
         "y!keep <番号> / /keep <番号> … 指定番号以外の曲をまとめて削除\n"
         "y!stop / /stop … VCから退出\n"
         "y!seek <時間> / /seek <時間> … 再生位置を変更\n"
+        "y!rewind <時間> / /rewind <時間> … 再生位置を指定秒数だけ巻き戻し\n"
+        "y!forward <時間> / /forward <時間> … 再生位置を指定秒数だけ早送り\n"
+        "　※例: y!rewind 1分, y!forward 30, /rewind 1:10\n"
         "\n"
         "💬 翻訳機能\n"
         "国旗リアクションで自動翻訳\n"
@@ -1634,6 +1699,27 @@ async def sc_seek(itx: discord.Interaction, position: str):
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
+
+@tree.command(name="rewind", description="再生位置を巻き戻し")
+@app_commands.describe(time="例: 10s, 1m, 1:00 (省略可)")
+async def sc_rewind(itx: discord.Interaction, time: str | None = None):
+
+    try:
+        await itx.response.defer()
+        await cmd_rewind(SlashMessage(itx), time or "")
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="forward", description="再生位置を早送り")
+@app_commands.describe(time="例: 10s, 1m, 1:00 (省略可)")
+async def sc_forward(itx: discord.Interaction, time: str | None = None):
+
+    try:
+        await itx.response.defer()
+        await cmd_forward(SlashMessage(itx), time or "")
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
 
 
 @tree.command(name="purge", description="メッセージを一括削除")
@@ -2087,4 +2173,6 @@ async def on_message(msg: discord.Message):
     elif cmd == "remove":await cmd_remove(msg, arg)
     elif cmd == "keep": await cmd_keep(msg, arg)
     elif cmd == "seek": await cmd_seek(msg, arg)
+    elif cmd == "rewind": await cmd_rewind(msg, arg)
+    elif cmd == "forward": await cmd_forward(msg, arg)
     elif cmd == "purge":await cmd_purge(msg, arg)
