@@ -204,6 +204,19 @@ class TranscriptionSink(voice_recv.AudioSink):
                 logger.error(f"TTS error: {e}")
 
 
+    def cleanup(self) -> None:
+        for uid, (wf, path) in list(self.user_files.items()):
+            try:
+                wf.close()
+            except Exception:
+                logger.warning(f"Error closing audio file for {uid}", exc_info=True)
+            try:
+                os.remove(path)
+            except Exception:
+                logger.warning(f"Error removing audio file for {uid}", exc_info=True)
+        self.user_files.clear()
+
+
 @dataclass
 class Track:
     title: str
