@@ -1136,7 +1136,11 @@ async def build_user_embed(target: discord.User | discord.Member,
         embed.add_field(name="ニックネーム", value=member.nick or '—')
         roles = [r for r in member.roles if r.name != '@everyone']
         embed.add_field(name="役職数", value=str(len(roles)))
-        embed.add_field(name="最高ロール", value=f"{member.top_role.name} {member.top_role.mention}")
+        if member.top_role.name == member.top_role.mention:
+            highest_role = member.top_role.mention
+        else:
+            highest_role = f"{member.top_role.name} {member.top_role.mention}"
+        embed.add_field(name="最高ロール", value=highest_role)
         perms = ", ".join([name for name, v in member.guild_permissions if v]) or '—'
         embed.add_field(name="権限一覧", value=perms, inline=False)
         vc = member.voice.channel.name if member.voice else '—'
