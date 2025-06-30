@@ -7,7 +7,7 @@ YoneRai Discord Botは、音楽再生・AI質問・翻訳・各種便利コマ�
 🎵 音楽機能
 再生:
 y!play / /play … 曲やプレイリストを追加
-/playはfile引数で音楽ファイルも添付OK
+/playはquery省略可・file引数で音楽ファイルも添付OK、指定順にキュー追加
 
 キュー管理:
 y!queue / /queue … キューの表示・操作
