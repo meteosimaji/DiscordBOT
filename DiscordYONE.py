@@ -301,6 +301,13 @@ def is_http_url(url: str) -> bool:
     return url.startswith("http://") or url.startswith("https://")
 
 
+def parse_urls_and_text(query: str) -> tuple[list[str], str]:
+    """文字列から URL 一覧と残りのテキストを返す"""
+    urls = re.findall(r"https?://\S+", query)
+    text = re.sub(r"https?://\S+", "", query).strip()
+    return urls, text
+
+
 async def add_playlist_lazy(state: "MusicState", playlist_url: str,
                             voice: discord.VoiceClient,
                             channel: discord.TextChannel):
@@ -1194,9 +1201,9 @@ async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool =
         True のとき query → 添付ファイルの順で追加する
         False のときは従来通り添付ファイル → query
     """
-    args = query.split()
+    urls, text_query = parse_urls_and_text(query)
     attachments = msg.attachments
-    if not args and not attachments:
+    if not urls and not text_query and not attachments:
         await msg.reply("URLまたは添付ファイルを指定してね！")
         return
 
@@ -1215,20 +1222,29 @@ async def cmd_play(msg: discord.Message, query: str = "", *, first_query: bool =
 
     def handle_query() -> None:
         nonlocal playlist_handled, tracks_query
-        if not args:
-            return
-        if len(args) == 1 and is_playlist_url(args[0]):
-            state.playlist_task = client.loop.create_task(
-                add_playlist_lazy(state, args[0], voice, msg.channel)
-            )
-            playlist_handled = True
-        else:
-            url_tracks = yt_extract_multiple(args)
-            if not url_tracks:
+        # URL 部分の処理
+        for u in urls:
+            if is_playlist_url(u):
+                state.playlist_task = client.loop.create_task(
+                    add_playlist_lazy(state, u, voice, msg.channel)
+                )
+                playlist_handled = True
+            else:
+                try:
+                    tracks_query += yt_extract(u)
+                except Exception:
+                    client.loop.create_task(
+                        msg.reply("URLから曲を取得できませんでした。", delete_after=5)
+                    )
+
+        # 残りテキストを検索
+        if text_query:
+            try:
+                tracks_query += yt_extract(text_query)
+            except Exception:
                 client.loop.create_task(
                     msg.reply("URLから曲を取得できませんでした。", delete_after=5)
                 )
-            tracks_query += url_tracks
 
     async def handle_attachments() -> None:
         nonlocal tracks_attach
@@ -1547,7 +1563,7 @@ async def on_voice_state_update(member, before, after):
 async def cmd_help(msg: discord.Message):
     await msg.channel.send(
         "🎵 音楽機能\n"
-        "y!play / /play … 曲やプレイリストを追加（/playはquery省略可・file:引数でファイル添付OK、指定順に追加）\n"
+        "y!play / /play … 曲を再生キューに追加（検索キーワード・URL・音声ファイル対応。複数ファイル同時追加OK）\n"
         "y!queue / /queue … キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）\n"
         "y!remove <番号> / /remove <番号> … 指定した曲をキューから削除\n"
         "y!keep <番号> / /keep <番号> … 指定番号以外の曲をまとめて削除\n"
