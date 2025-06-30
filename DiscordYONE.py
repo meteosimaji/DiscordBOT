@@ -1901,7 +1901,6 @@ async def sc_play(
             "query3": query3,
             "file3": file3,
         }
-        att_map = {att.id: att for att in itx.attachments}
         order: list[tuple[str, Any]] = []
         for op in opts:
             name = op.get("name")
@@ -1909,15 +1908,15 @@ async def sc_play(
                 order.append(("query", values[name]))
             elif name.startswith("file"):
                 att = values.get(name)
-                if att is None and isinstance(op.get("value"), str):
-                    att = att_map.get(int(op["value"]))
                 if att:
                     order.append(("file", att))
         if not order:
             if query1:
                 order.append(("query", query1))
-            for att in itx.attachments:
-                order.append(("file", att))
+            for key in ("file1", "file2", "file3"):
+                att = values.get(key)
+                if att:
+                    order.append(("file", att))
         for kind, val in order:
             if kind == "query":
                 msg = SlashMessage(itx)
