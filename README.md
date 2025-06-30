@@ -30,8 +30,8 @@ YoneRai Discord Bot は、音楽再生、翻訳、AI 質問などの機能を備
 - **AI 質問**: `y? <質問>` / `/gpt <質問>` — GPT‑4.1 が Web 検索や Python 実行を用いて回答。
 
 ### 🎤 音声文字起こし
-- `y!yomiage` / `/yomiage` — ボイスチャットの発言を OpenAI TTS で読み上げ。
-- `y!mojiokosi` / `/mojiokosi` — 発言内容をテキストチャンネルへ自動送信。
+- `y!yomiage` / `/yomiage` — ボイスチャットの発言を gTTS で読み上げ。
+- `y!mojiokosi` / `/mojiokosi` — 発言内容を Google 音声認識でテキストチャンネルへ自動送信。
 
 ### 🧑 ユーザー情報
 - `y!user <@メンション|ID>` / `/user [ユーザー]` — 指定ユーザーの詳細情報をEmbedで表示します。

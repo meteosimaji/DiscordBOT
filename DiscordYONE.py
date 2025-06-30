@@ -1,6 +1,8 @@
 import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base64
 from discord import app_commands
 from openai import OpenAI, AsyncOpenAI
+from gtts import gTTS
+import speech_recognition as sr
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
@@ -162,43 +164,29 @@ class TranscriptionSink(voice_recv.AudioSink):
     async def process_file(self, member: discord.Member, path: str):
         text = ""
         try:
-            async with openai_async.beta.realtime.connect(
-                model="gpt-4o-realtime-preview-2025-06-03",
-                extra_query={"intent": "transcription"},
-            ) as conn:
-                await conn.transcription_session.update(
-                    session={
-                        "input_audio_format": "pcm16",
-                        "input_audio_transcription": {
-                            "model": "gpt-4o-mini-transcribe",
-                            "language": "ja",
-                        },
-                        "turn_detection": {"type": "server_vad", "silence_duration_ms": 500},
-                    }
-                )
-
-                with open(path, "rb") as f:
-                    while chunk := f.read(4096):
-                        await conn.input_audio_buffer.append(audio=base64.b64encode(chunk).decode())
-                await conn.input_audio_buffer.commit()
-
-                async for event in conn:
-                    if event.type == "conversation.item.input_audio_transcription.delta" and event.delta:
-                        text += event.delta
-                        await self._handle_transcribed_segment(member, event.delta)
-                    elif event.type == "conversation.item.input_audio_transcription.completed":
-                        if event.transcript:
-                            text += event.transcript
-                        break
+            r = sr.Recognizer()
+            with sr.AudioFile(path) as source:
+                audio = r.record(source)
+            try:
+                text = r.recognize_google(audio, language="ja-JP")
+            except sr.UnknownValueError:
+                text = ""
+            except sr.RequestError as e:
+                logger.error(f"STT request error: {e}")
 
             chan_id = transcript_channels.get(member.guild.id)
-            if chan_id:
+            if chan_id and text:
                 ch = client.get_channel(chan_id)
                 if ch:
                     try:
                         await ch.send(f"**{member.display_name}:** {text.strip()}")
                     except Exception as e:
                         logger.error(f"Send transcript error: {e}")
+
+            if text and reading_channels.get(member.guild.id):
+                vc = member.guild.voice_client
+                if vc and vc.is_connected():
+                    await self._play_tts(vc, text)
         except Exception as e:
             logger.error(f"Transcription error: {e}")
         finally:
@@ -222,36 +210,28 @@ class TranscriptionSink(voice_recv.AudioSink):
         if reading_channels.get(member.guild.id):
             vc = member.guild.voice_client
             if vc and vc.is_connected():
-                await self._play_streaming_tts(vc, segment)
+                await self._play_tts(vc, segment)
 
-    async def _play_streaming_tts(self, vc: discord.VoiceClient, text: str) -> None:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        path = tmp.name
-        tmp.close()
+    async def _play_tts(self, vc: discord.VoiceClient, text: str) -> None:
+        try:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+            path = tmp.name
+            tmp.close()
+            tts = gTTS(text=text, lang="ja")
+            tts.save(path)
 
-        resp = openai_client.audio.speech.with_streaming_response.create(
-            model="gpt-4o-mini-tts",
-            voice="shimmer",
-            input=text,
-            instructions="Read the text naturally",
-            stream_format="audio",
-        )
+            def after(_: Any) -> None:
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
 
-        def writer() -> None:
-            first = True
-            with open(path, "wb") as f:
-                for chunk in resp.iter_bytes():
-                    f.write(chunk)
-                    if first:
-                        first = False
-                        client.loop.call_soon_threadsafe(
-                            vc.play,
-                            discord.FFmpegPCMAudio(path),
-                            after=lambda _: os.remove(path),
-                        )
-            resp.close()
-
-        await asyncio.get_event_loop().run_in_executor(None, writer)
+            vc.play(discord.FFmpegPCMAudio(path), after=after)
+            # wait until playback finished
+            while vc.is_playing():
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.error(f"TTS error: {e}")
 
 
     def cleanup(self) -> None:
