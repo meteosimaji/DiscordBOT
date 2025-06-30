@@ -201,6 +201,10 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Bot credentials (not meant to be tracked)
+token.txt
+OPENAIKEY.txt
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
