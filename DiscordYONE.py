@@ -2465,3 +2465,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "purge":await cmd_purge(msg, arg)
     elif cmd == "yomiage": await cmd_yomiage(msg)
     elif cmd == "mojiokosi": await cmd_mojiokosi(msg)
+
+# ───────────────── 起動 ─────────────────
+if __name__ == "__main__":
+    client.run(TOKEN)
