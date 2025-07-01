@@ -266,13 +266,15 @@ class PokerView(discord.ui.View):
     async def call(self, interaction: discord.Interaction, _):
         await self._act(interaction, "call" if self.game.current_bet > self.game.players[self.game.turn].bet else "check")
 
-    @discord.ui.button(label="Raise 1000", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Raise +1BB", style=discord.ButtonStyle.primary)
     async def raise_small(self, interaction: discord.Interaction, _):
-        await self._act(interaction, "raise", self.game.current_bet + 1000)
+        amount = self.game.big_blind
+        await self._act(interaction, "raise", self.game.current_bet + amount)
 
-    @discord.ui.button(label="Raise 5000", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Raise Pot", style=discord.ButtonStyle.primary)
     async def raise_big(self, interaction: discord.Interaction, _):
-        await self._act(interaction, "raise", self.game.current_bet + 5000)
+        amount = self.game.pot if self.game.pot else self.game.big_blind * 5
+        await self._act(interaction, "raise", self.game.current_bet + amount)
 
     @discord.ui.button(label="All-in", style=discord.ButtonStyle.success)
     async def allin(self, interaction: discord.Interaction, _):
