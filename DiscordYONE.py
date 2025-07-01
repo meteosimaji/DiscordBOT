@@ -416,7 +416,7 @@ def yt_extract_multiple(urls: list[str]) -> list[Track]:
         try:
             tracks.extend(yt_extract(url))
         except Exception as e:
-            print(f"取得失敗 ({url}): {e}")
+            logger.error("取得失敗 (%s): %s", url, e)
     return tracks
 
 
@@ -482,7 +482,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
         try:
             tracks = await loop.run_in_executor(None, yt_extract, url)
         except Exception as e:
-            print(f"取得失敗 ({url}): {e}")
+            logger.error("取得失敗 (%s): %s", url, e)
             continue
         if not tracks:
             continue
@@ -499,7 +499,7 @@ def cleanup_track(track: Track | None):
         try:
             os.remove(track.url)
         except Exception as e:
-            print(f"cleanup failed for {track.url}: {e}")
+            logger.error("cleanup failed for %s: %s", track.url, e)
 
 
 def parse_message_link(link: str) -> tuple[int, int, int] | None:
@@ -2107,8 +2107,8 @@ async def on_ready():
     try:
         await tree.sync()
     except Exception as e:
-        print("Slash command sync failed:", e)
-    print("LOGIN:", client.user)
+        logger.error("Slash command sync failed: %s", e)
+    logger.info("LOGIN: %s", client.user)
 
 # ----- Slash command wrappers -----
 @tree.command(name="ping", description="Botの応答速度を表示")
@@ -2731,7 +2731,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     # 3. ISO ⇒ 使用する言語名（例: "English"）
     lang = ISO_TO_LANG.get(iso)
     if not lang:
-        print(f"[DEBUG] 未登録 ISO: {iso}")
+        logger.debug("未登録 ISO: %s", iso)
         return
 
     # 4. 元メッセージ取得
@@ -2768,9 +2768,9 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
             # 失敗したらメッセージ主へリプライ（失敗した場合はチャンネルに通知）
             try:
                 await message.reply(f"翻訳エラー: {e}", delete_after=5)
-            except:
+            except Exception:
                 await channel.send(f"翻訳エラー: {e}", delete_after=5)
-            print("[ERROR] 翻訳失敗:", e)
+            logger.error("翻訳失敗: %s", e)
 
 
 @client.event
