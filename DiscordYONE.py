@@ -80,10 +80,22 @@ class _SlashChannel:
         return getattr(self._channel, name)
 
     async def send(self, *args, **kwargs):
+        delete_after = kwargs.pop("delete_after", None)
+
         if not self._itx.response.is_done():
             await self._itx.response.send_message(*args, **kwargs)
+            message = await self._itx.original_response()
         else:
-            await self._itx.followup.send(*args, **kwargs)
+            message = await self._itx.followup.send(*args, **kwargs)
+
+        if delete_after is not None:
+            await asyncio.sleep(delete_after)
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass
+
+        return message
 
 
     def typing(self):
@@ -1582,16 +1594,32 @@ async def cmd_purge(msg: discord.Message, arg: str):
         return
 
     deleted_total = 0
+
+    def _skip_cmd(m: discord.Message) -> bool:
+        if m.id == msg.id:
+            return False
+        if (
+            m.type == discord.MessageType.application_command
+            and m.interaction
+            and m.interaction.id == msg.id
+        ):
+            return False
+        return True
+
     try:
         if target_message is None:
             if hasattr(target_channel, "purge"):
                 try:
-                    deleted = await target_channel.purge(limit=limit, check=lambda m: m.id != msg.id)
+                    deleted = await target_channel.purge(limit=limit, check=_skip_cmd)
                 except discord.NotFound:
                     deleted = []
                 deleted_total = len(deleted)
             else:
-                msgs = [m async for m in target_channel.history(limit=limit) if m.id != msg.id]
+                msgs = [
+                    m
+                    async for m in target_channel.history(limit=limit)
+                    if _skip_cmd(m)
+                ]
                 try:
                     await target_channel.delete_messages(msgs)
                 except discord.NotFound:
@@ -1602,11 +1630,15 @@ async def cmd_purge(msg: discord.Message, arg: str):
             while True:
                 if hasattr(target_channel, "purge"):
                     try:
-                        batch = await target_channel.purge(after=after, limit=100, check=lambda m: m.id != msg.id)
+                        batch = await target_channel.purge(after=after, limit=100, check=_skip_cmd)
                     except discord.NotFound:
                         batch = []
                 else:
-                    batch = [m async for m in target_channel.history(after=after, limit=100) if m.id != msg.id]
+                    batch = [
+                        m
+                        async for m in target_channel.history(after=after, limit=100)
+                        if _skip_cmd(m)
+                    ]
                     try:
                         await target_channel.delete_messages(batch)
                     except discord.NotFound:
