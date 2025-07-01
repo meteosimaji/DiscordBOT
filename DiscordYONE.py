@@ -2130,18 +2130,21 @@ async def sc_help(itx: discord.Interaction):
 
 # flags.txt を読み込み「絵文字 ➜ ISO 国コード」を作る
 SPECIAL_EMOJI_ISO: dict[str, str] = {}
-with open("flags.txt", "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            emoji = parts[0]                  # 例 🇯🇵
-            shortcode = parts[1]              # 例 :flag_jp:
-            if shortcode.startswith(":flag_") and shortcode.endswith(":"):
-                iso = shortcode[6:-1].upper() # jp -> JP
-                SPECIAL_EMOJI_ISO[emoji] = iso
+try:
+    with open("flags.txt", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                emoji = parts[0]                  # 例 🇯🇵
+                shortcode = parts[1]              # 例 :flag_jp:
+                if shortcode.startswith(":flag_") and shortcode.endswith(":"):
+                    iso = shortcode[6:-1].upper() # jp -> JP
+                    SPECIAL_EMOJI_ISO[emoji] = iso
+except FileNotFoundError:
+    logger.warning("flags.txt not found. Flag translation reactions disabled")
 
 ISO_TO_LANG = {
     # A
@@ -2553,4 +2556,6 @@ async def on_message(msg: discord.Message):
 
 # ───────────────── 起動 ─────────────────
 if __name__ == "__main__":
+    if not TOKEN:
+        raise RuntimeError("DISCORD_TOKEN is not set. Check your environment variables or .env file")
     client.run(TOKEN)
