@@ -1945,8 +1945,12 @@ async def cmd_barcode(msg: discord.Message, text: str) -> None:
 
     import barcode
     from barcode.writer import ImageWriter
-
-    code = barcode.get("code128", text, writer=ImageWriter())
+    from barcode.errors import IllegalCharacterError
+    try:
+        code = barcode.get("code128", text, writer=ImageWriter())
+    except IllegalCharacterError:
+        await msg.reply("Code128 では英数字など ASCII 文字のみ利用できます。", delete_after=5)
+        return
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
     path = tmp.name
     tmp.close()
