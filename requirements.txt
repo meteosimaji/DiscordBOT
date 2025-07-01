@@ -4,4 +4,5 @@ yt-dlp==2025.6.25
 discord-ext-voice-recv==0.5.2a179
 python-dotenv==1.1.1
 gTTS==2.5.1
-SpeechRecognition==3.10.0
+faster-whisper==1.1.1
+faster-whisper==1.1.1

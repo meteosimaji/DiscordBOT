@@ -2,7 +2,7 @@ import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base
 from discord import app_commands
 from openai import OpenAI, AsyncOpenAI
 from gtts import gTTS
-import speech_recognition as sr
+from faster_whisper import WhisperModel
 from urllib.parse import urlparse, parse_qs
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
@@ -33,6 +33,9 @@ reading_channels: dict[int, bool] = {}
 transcript_channels: dict[int, int] = {}
 # 現在 VC で使用中の AudioSink {guild_id: TranscriptionSink}
 active_sinks: dict[int, voice_recv.AudioSink] = {}
+
+# Whisper model (loaded once)
+whisper_model = WhisperModel("base", device="cpu")
 
 # ───────────────── Logger ─────────────────
 handler = RotatingFileHandler('bot.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
@@ -164,15 +167,13 @@ class TranscriptionSink(voice_recv.AudioSink):
     async def process_file(self, member: discord.Member, path: str):
         text = ""
         try:
-            r = sr.Recognizer()
-            with sr.AudioFile(path) as source:
-                audio = r.record(source)
             try:
-                text = r.recognize_google(audio, language="ja-JP")
-            except sr.UnknownValueError:
-                text = ""
-            except sr.RequestError as e:
-                logger.error(f"STT request error: {e}")
+                segments, _ = await asyncio.to_thread(
+                    lambda: list(whisper_model.transcribe(path, language="ja"))
+                )
+                text = "".join(seg.text for seg in segments).strip()
+            except Exception as e:
+                logger.error(f"STT processing error: {e}")
 
             chan_id = transcript_channels.get(member.guild.id)
             if chan_id and text:
@@ -217,8 +218,7 @@ class TranscriptionSink(voice_recv.AudioSink):
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
             path = tmp.name
             tmp.close()
-            tts = gTTS(text=text, lang="ja")
-            tts.save(path)
+            await asyncio.to_thread(lambda: gTTS(text=text, lang="ja").save(path))
 
             def after(_: Any) -> None:
                 try:
@@ -226,7 +226,7 @@ class TranscriptionSink(voice_recv.AudioSink):
                 except Exception:
                     pass
 
-            vc.play(discord.FFmpegPCMAudio(path), after=after)
+            vc.play(discord.FFmpegOpusAudio(path), after=after)
             # wait until playback finished
             while vc.is_playing():
                 await asyncio.sleep(0.5)
@@ -1718,7 +1718,7 @@ async def cmd_help(msg: discord.Message):
         "🤖 AI/ツール\n"
         "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答\n"
         "/yomiage, y!yomiage : VCの発言を読み上げ\n"
-        "/mojiokosi, y!mojiokosi : 発言を文字起こし\n"
+        "/mojiokosi, y!mojiokosi : 発言を文字起こし (Whisper 使用)\n"
         "\n"
         "🧑 ユーザー情報\n"
         "/user [ユーザー], y!user <@メンション|ID> : プロフィール表示\n"
