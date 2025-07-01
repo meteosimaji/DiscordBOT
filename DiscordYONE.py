@@ -678,6 +678,106 @@ class QuoteView(discord.ui.View):
             )
 
 
+class YomiageView(discord.ui.View):
+    """読み上げ機能の ON/OFF を切り替えるボタン"""
+
+    def __init__(self, guild_id: int, owner_id: int):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.owner_id = owner_id
+        self._update_label()
+
+    def _update_label(self) -> None:
+        status = "ON" if reading_channels.get(self.guild_id) else "OFF"
+        self.toggle.label = f"📢 読み上げ: {status}"
+
+    async def interaction_check(self, itx: discord.Interaction) -> bool:
+        if itx.user.id != self.owner_id:
+            await itx.response.send_message(
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="", style=discord.ButtonStyle.primary)
+    async def toggle(self, itx: discord.Interaction, _: discord.ui.Button):
+        if reading_channels.get(self.guild_id):
+            reading_channels.pop(self.guild_id, None)
+            if self.guild_id not in transcript_channels:
+                vc = itx.guild.voice_client
+                if (
+                    vc
+                    and isinstance(vc, voice_recv.VoiceRecvClient)
+                    and vc.is_listening()
+                ):
+                    vc.stop_listening()
+            content = "📢 読み上げ機能を無効にしました。"
+        else:
+            vc: YoneVoiceRecvClient | None = await ensure_voice_recv(SlashMessage(itx))
+            if not vc:
+                return
+            reading_channels[self.guild_id] = True
+            if not vc.is_listening():
+                sink = TranscriptionSink(self.guild_id)
+                active_sinks[self.guild_id] = sink
+                vc.listen(sink)
+            content = "📢 読み上げ機能を有効にしました。"
+
+        self._update_label()
+        await itx.response.edit_message(content=content, view=self)
+
+
+class MojiokosiView(discord.ui.View):
+    """文字起こし機能の ON/OFF を切り替えるボタン"""
+
+    def __init__(self, guild_id: int, owner_id: int):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.owner_id = owner_id
+        self._update_label()
+
+    def _update_label(self) -> None:
+        status = "ON" if self.guild_id in transcript_channels else "OFF"
+        self.toggle.label = f"💬 文字起こし: {status}"
+
+    async def interaction_check(self, itx: discord.Interaction) -> bool:
+        if itx.user.id != self.owner_id:
+            await itx.response.send_message(
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="", style=discord.ButtonStyle.primary)
+    async def toggle(self, itx: discord.Interaction, _: discord.ui.Button):
+        if self.guild_id in transcript_channels:
+            transcript_channels.pop(self.guild_id, None)
+            if self.guild_id not in reading_channels:
+                vc = itx.guild.voice_client
+                if (
+                    vc
+                    and isinstance(vc, voice_recv.VoiceRecvClient)
+                    and vc.is_listening()
+                ):
+                    vc.stop_listening()
+            content = "💬 文字起こしを無効にしました。"
+        else:
+            vc: YoneVoiceRecvClient | None = await ensure_voice_recv(SlashMessage(itx))
+            if not vc:
+                return
+            transcript_channels[self.guild_id] = itx.channel.id
+            if not vc.is_listening():
+                sink = TranscriptionSink(self.guild_id)
+                active_sinks[self.guild_id] = sink
+                vc.listen(sink)
+            content = "💬 このチャンネルで文字起こしを行います。"
+
+        self._update_label()
+        await itx.response.edit_message(content=content, view=self)
+
+
 # ──────────── 🎵  VCユーティリティ ────────────
 guild_states: dict[int, "MusicState"] = {}
 voice_lock = asyncio.Lock()
@@ -1628,18 +1728,20 @@ async def cmd_yomiage(msg: discord.Message):
             vc = msg.guild.voice_client
             if vc and isinstance(vc, voice_recv.VoiceRecvClient) and vc.is_listening():
                 vc.stop_listening()
-        await msg.channel.send("📢 読み上げ機能を無効にしました。")
-        return
+        content = "📢 読み上げ機能を無効にしました。"
+    else:
+        vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
+        if not vc:
+            return
+        reading_channels[guild_id] = True
+        if not vc.is_listening():
+            sink = TranscriptionSink(guild_id)
+            active_sinks[guild_id] = sink
+            vc.listen(sink)
+        content = "📢 読み上げ機能を有効にしました。"
 
-    vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
-    if not vc:
-        return
-    reading_channels[guild_id] = True
-    if not vc.is_listening():
-        sink = TranscriptionSink(guild_id)
-        active_sinks[guild_id] = sink
-        vc.listen(sink)
-    await msg.channel.send("📢 読み上げ機能を有効にしました。")
+    view = YomiageView(guild_id, msg.author.id)
+    await msg.channel.send(content, view=view)
 
 
 async def cmd_mojiokosi(msg: discord.Message):
@@ -1650,18 +1752,20 @@ async def cmd_mojiokosi(msg: discord.Message):
             vc = msg.guild.voice_client
             if vc and isinstance(vc, voice_recv.VoiceRecvClient) and vc.is_listening():
                 vc.stop_listening()
-        await msg.channel.send("💬 文字起こしを無効にしました。")
-        return
+        content = "💬 文字起こしを無効にしました。"
+    else:
+        vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
+        if not vc:
+            return
+        transcript_channels[guild_id] = msg.channel.id
+        if not vc.is_listening():
+            sink = TranscriptionSink(guild_id)
+            active_sinks[guild_id] = sink
+            vc.listen(sink)
+        content = "💬 このチャンネルで文字起こしを行います。"
 
-    vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
-    if not vc:
-        return
-    transcript_channels[guild_id] = msg.channel.id
-    if not vc.is_listening():
-        sink = TranscriptionSink(guild_id)
-        active_sinks[guild_id] = sink
-        vc.listen(sink)
-    await msg.channel.send("💬 このチャンネルで文字起こしを行います。")
+    view = MojiokosiView(guild_id, msg.author.id)
+    await msg.channel.send(content, view=view)
 
 
 # ──────────── 🎵  自動切断ハンドラ ────────────
