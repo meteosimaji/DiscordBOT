@@ -11,13 +11,13 @@ from treys import Card, Deck, Evaluator
 
 
 # Basic text emoji for card suits
-SUITS = ["♣", "♦", "♥", "♠"]
+SUIT_MAP = {"s": "♠", "h": "♥", "d": "♦", "c": "♣"}
 RANKS = "23456789TJQKA"
 
 def card_to_emoji(card: int) -> str:
     rank = Card.get_rank_int(card)
-    suit = Card.get_suit_int(card)
-    return f"{RANKS[rank-2]}{SUITS[suit]}"
+    suit_char = Card.INT_SUIT_TO_CHAR_SUIT[Card.get_suit_int(card)]
+    return f"{RANKS[rank]}{SUIT_MAP[suit_char]}"
 
 
 def format_hand(cards: List[int]) -> str:
