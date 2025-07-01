@@ -462,7 +462,7 @@ async def add_playlist_lazy(state: "MusicState", playlist_url: str,
     list_id = qs.get("list", [None])[0]
     if list_id:
         playlist_url = f"https://www.youtube.com/playlist?list={list_id}"
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     info = await loop.run_in_executor(
         None,
         lambda: YoutubeDL({**YTDL_OPTS, "extract_flat": True}).extract_info(
@@ -1547,7 +1547,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
     await msg.channel.typing()
     try:
         # OpenAIリクエストを別スレッドで
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         resp = await loop.run_in_executor(
             None,
