@@ -1617,7 +1617,7 @@ async def cmd_purge(msg: discord.Message, arg: str):
         await msg.reply("権限不足で削除できませんでした。", delete_after=5)
         return
 
-    await msg.channel.send(f"🧹 {deleted_total}件削除しました！")
+    await msg.channel.send(f"🧹 {deleted_total}件削除しました！", delete_after=5)
 
 
 async def cmd_yomiage(msg: discord.Message):
