@@ -90,7 +90,10 @@ class PokerMatch:
 
     async def _send_hands(self):
         for p in self.players:
-            if p.user.id == self.bot_user.id:
+            # ClientUser (the bot itself) does not implement `create_dm`,
+            # so skip DMing it.  We also avoid calling create_dm on any
+            # object lacking the method just in case.
+            if p.user.id == self.bot_user.id or not hasattr(p.user, "create_dm"):
                 continue
             try:
                 dm = await p.user.create_dm()
