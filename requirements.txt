@@ -7,3 +7,4 @@ gTTS==2.5.1
 faster-whisper==1.1.1
 qrcode
 python-barcode[images]
+treys
