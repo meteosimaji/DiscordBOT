@@ -128,6 +128,118 @@ YTDL_OPTS = {
     "default_search": "ytsearch",
 }
 
+# ──────────────── Help Pages ────────────────
+# Embed titles and descriptions for each help category
+HELP_PAGES: list[tuple[str, str]] = [
+    (
+        "すべて",
+        "\n".join(
+            [
+                "🎵 音楽機能",
+                "y!play … 添付ファイルを先に、テキストはカンマ区切りで順に追加",
+                "/play … query/file 引数を入力した順に追加 (query 内のカンマは分割されません)",
+                "/queue, y!queue : キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）",
+                "/remove <番号>, y!remove <番号> : 指定した曲をキューから削除",
+                "/keep <番号>, y!keep <番号> : 指定番号以外の曲をまとめて削除",
+                "/stop, y!stop : VCから退出",
+                "/seek <時間>, y!seek <時間> : 再生位置を変更",
+                "/rewind <時間>, y!rewind <時間> : 再生位置を指定秒数だけ巻き戻し",
+                "/forward <時間>, y!forward <時間> : 再生位置を指定秒数だけ早送り",
+                "　※例: y!rewind 1分, y!forward 30, /rewind 1:10",
+                "",
+                "💬 翻訳機能",
+                "国旗リアクションで自動翻訳",
+                "",
+                "🤖 AI/ツール",
+                "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答",
+                "/yomiage, y!yomiage : VCの発言を読み上げ",
+                "/mojiokosi, y!mojiokosi : 発言を文字起こし (Whisper 使用)",
+                "",
+                "🧑 ユーザー情報",
+                "/user [ユーザー], y!user <@メンション|ID> : プロフィール表示",
+                "/server, y!server : サーバー情報表示",
+                "",
+                "🕹️ その他",
+                "/ping, y!ping : 応答速度",
+                "/say <text>, y!say <text> : エコー",
+                "/date, y!date : 日時表示（/dateはtimestampオプションもOK）",
+                "/dice, y!XdY : ダイス（例: 2d6）",
+                "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
+                "/help, y!help : このヘルプ",
+                "y!? … 返信で使うと名言化",
+                "",
+                "🔰 コマンドの使い方",
+                "テキストコマンド: y!やy?などで始めて送信",
+                "　例: y!play Never Gonna Give You Up",
+                "スラッシュコマンド: /で始めてコマンド名を選択",
+                "　例: /play /queue /remove 1 2 3 /keep 2 /gpt 猫とは？",
+            ]
+        ),
+    ),
+    (
+        "🎵 音楽",
+        "\n".join(
+            [
+                "y!play … 添付ファイルを先に、テキストはカンマ区切りで順に追加",
+                "/play … query/file 引数を入力した順に追加 (query 内のカンマは分割されません)",
+                "/queue, y!queue : キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）",
+                "/remove <番号>, y!remove <番号> : 指定した曲をキューから削除",
+                "/keep <番号>, y!keep <番号> : 指定番号以外の曲をまとめて削除",
+                "/stop, y!stop : VCから退出",
+                "/seek <時間>, y!seek <時間> : 再生位置を変更",
+                "/rewind <時間>, y!rewind <時間> : 再生位置を指定秒数だけ巻き戻し",
+                "/forward <時間>, y!forward <時間> : 再生位置を指定秒数だけ早送り",
+                "　※例: y!rewind 1分, y!forward 30, /rewind 1:10",
+            ]
+        ),
+    ),
+    ("💬 翻訳", "国旗リアクションで自動翻訳"),
+    (
+        "🤖 AI/ツール",
+        "\n".join(
+            [
+                "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答",
+                "/yomiage, y!yomiage : VCの発言を読み上げ",
+                "/mojiokosi, y!mojiokosi : 発言を文字起こし (Whisper 使用)",
+            ]
+        ),
+    ),
+    (
+        "🧑 ユーザー情報",
+        "\n".join(
+            [
+                "/user [ユーザー], y!user <@メンション|ID> : プロフィール表示",
+                "/server, y!server : サーバー情報表示",
+            ]
+        ),
+    ),
+    (
+        "🕹️ その他",
+        "\n".join(
+            [
+                "/ping, y!ping : 応答速度",
+                "/say <text>, y!say <text> : エコー",
+                "/date, y!date : 日時表示（/dateはtimestampオプションもOK）",
+                "/dice, y!XdY : ダイス（例: 2d6）",
+                "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
+                "/help, y!help : このヘルプ",
+                "y!? … 返信で使うと名言化",
+            ]
+        ),
+    ),
+    (
+        "🔰 使い方",
+        "\n".join(
+            [
+                "テキストコマンド: y!やy?などで始めて送信",
+                "　例: y!play Never Gonna Give You Up",
+                "スラッシュコマンド: /で始めてコマンド名を選択",
+                "　例: /play /queue /remove 1 2 3 /keep 2 /gpt 猫とは？",
+            ]
+        ),
+    ),
+]
+
 # ───────────────── Voice Transcription Sink ─────────────────
 class TranscriptionSink(voice_recv.AudioSink):
     def __init__(self, guild_id: int):
@@ -1127,6 +1239,76 @@ class QueueRemoveView(ControlView):
 
 # ──────────── 🎵  Queue UI ここまで ──────────
 
+class HelpView(discord.ui.View):
+    """Paginated help message with navigation buttons"""
+
+    def __init__(self, owner_id: int):
+        super().__init__(timeout=None)
+        self.owner_id = owner_id
+        self.index = 0
+
+    def _embed(self) -> discord.Embed:
+        title, desc = HELP_PAGES[self.index]
+        return discord.Embed(title=title, description=desc, colour=0x5865F2)
+
+    async def interaction_check(self, itx: discord.Interaction) -> bool:
+        if itx.user.id != self.owner_id:
+            await itx.response.send_message(
+                "このボタンはコマンドを実行した人だけ使えます！",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def _update(self, itx: discord.Interaction):
+        await itx.response.edit_message(embed=self._embed(), view=self)
+
+    @discord.ui.button(label="⬅️前のページ", style=discord.ButtonStyle.secondary)
+    async def prev_page(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = (self.index - 1) % len(HELP_PAGES)
+        await self._update(itx)
+
+    @discord.ui.button(label="➡️次のページ", style=discord.ButtonStyle.primary)
+    async def next_page(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = (self.index + 1) % len(HELP_PAGES)
+        await self._update(itx)
+
+    @discord.ui.button(label="すべて", style=discord.ButtonStyle.success, row=1)
+    async def goto_all(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 0
+        await self._update(itx)
+
+    @discord.ui.button(label="🎵音楽", style=discord.ButtonStyle.success, row=1)
+    async def goto_music(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 1
+        await self._update(itx)
+
+    @discord.ui.button(label="💬翻訳", style=discord.ButtonStyle.success, row=1)
+    async def goto_trans(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 2
+        await self._update(itx)
+
+    @discord.ui.button(label="🤖AI/ツール", style=discord.ButtonStyle.success, row=1)
+    async def goto_ai(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 3
+        await self._update(itx)
+
+    @discord.ui.button(label="🧑ユーザー情報", style=discord.ButtonStyle.success, row=1)
+    async def goto_user(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 4
+        await self._update(itx)
+
+    @discord.ui.button(label="🕹️その他", style=discord.ButtonStyle.success, row=2)
+    async def goto_other(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 5
+        await self._update(itx)
+
+    @discord.ui.button(label="🔰使い方", style=discord.ButtonStyle.success, row=2)
+    async def goto_usage(self, itx: discord.Interaction, _: discord.ui.Button):
+        self.index = 6
+        await self._update(itx)
+
+
 # ───────────────── コマンド実装 ─────────────────
 async def cmd_ping(msg: discord.Message):
     ms = client.latency * 1000
@@ -1803,46 +1985,8 @@ async def on_voice_state_update(member, before, after):
 
 
 async def cmd_help(msg: discord.Message):
-    await msg.channel.send(
-        "🎵 音楽機能\n"
-        "y!play … 添付ファイルを先に、テキストはカンマ区切りで順に追加\n"
-        "/play … query/file 引数を入力した順に追加 (query 内のカンマは分割されません)\n"
-        "/queue, y!queue : キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）\n"
-        "/remove <番号>, y!remove <番号> : 指定した曲をキューから削除\n"
-        "/keep <番号>, y!keep <番号> : 指定番号以外の曲をまとめて削除\n"
-        "/stop, y!stop : VCから退出\n"
-        "/seek <時間>, y!seek <時間> : 再生位置を変更\n"
-        "/rewind <時間>, y!rewind <時間> : 再生位置を指定秒数だけ巻き戻し\n"
-        "/forward <時間>, y!forward <時間> : 再生位置を指定秒数だけ早送り\n"
-        "　※例: y!rewind 1分, y!forward 30, /rewind 1:10\n"
-        "\n"
-        "💬 翻訳機能\n"
-        "国旗リアクションで自動翻訳\n"
-        "\n"
-        "🤖 AI/ツール\n"
-        "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答\n"
-        "/yomiage, y!yomiage : VCの発言を読み上げ\n"
-        "/mojiokosi, y!mojiokosi : 発言を文字起こし (Whisper 使用)\n"
-        "\n"
-        "🧑 ユーザー情報\n"
-        "/user [ユーザー], y!user <@メンション|ID> : プロフィール表示\n"
-        "/server, y!server : サーバー情報表示\n"
-        "\n"
-        "🕹️ その他\n"
-        "/ping, y!ping : 応答速度\n"
-        "/say <text>, y!say <text> : エコー\n"
-        "/date, y!date : 日時表示（/dateはtimestampオプションもOK）\n"
-        "/dice, y!XdY : ダイス（例: 2d6）\n"
-        "/purge <n|link>, y!purge <n|link> : メッセージ一括削除\n"
-        "/help, y!help : このヘルプ\n"
-        "y!? … 返信で使うと名言化\n"
-        "\n"
-        "🔰 コマンドの使い方\n"
-        "テキストコマンド: y!やy?などで始めて送信\n"
-        "　例: y!play Never Gonna Give You Up\n"
-        "スラッシュコマンド: /で始めてコマンド名を選択\n"
-        "　例: /play /queue /remove 1 2 3 /keep 2 /gpt 猫とは？"
-    )
+    view = HelpView(msg.author.id)
+    await msg.channel.send(embed=view._embed(), view=view)
 
 
 
