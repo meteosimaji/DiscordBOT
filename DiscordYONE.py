@@ -1,6 +1,6 @@
 import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base64
 from discord import app_commands
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI
 from gtts import gTTS
 from faster_whisper import WhisperModel
 from urllib.parse import urlparse, parse_qs
@@ -21,7 +21,6 @@ TOKEN = os.getenv("DISCORD_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-openai_async = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # ───────────────── Voice Transcription / TTS ─────────────────
 from discord.ext import voice_recv
