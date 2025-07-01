@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 
 from dataclasses import dataclass
 from typing import Any
+
 from poker import PokerMatch, PokerView
+
 
 # ───────────────── TOKEN / KEY ─────────────────
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -164,7 +166,9 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice, y!XdY : ダイス（例: 2d6）",
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
+
                 "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
+
                 "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
                 "/help, y!help : このヘルプ",
                 "y!? … 返信で使うと名言化",
@@ -222,7 +226,9 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice, y!XdY : ダイス（例: 2d6）",
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
+
                 "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
+
                 "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
                 "/help, y!help : このヘルプ",
                 "y!? … 返信で使うと名言化",
@@ -1763,6 +1769,7 @@ async def on_voice_state_update(member, before, after):
                     st.panel_owner = None
 
 
+
 async def cmd_poker(msg: discord.Message, arg: str = ""):
     """Start a heads-up poker match."""
     arg = arg.strip()
@@ -1925,6 +1932,7 @@ async def sc_gpt(itx: discord.Interaction, text: str):
 
 
 @tree.command(name="poker", description="BOTとポーカーで遊ぶ")
+
 @app_commands.describe(opponent="対戦相手。省略するとBOT")
 async def sc_poker(itx: discord.Interaction, opponent: discord.User | None = None):
 
@@ -1932,6 +1940,7 @@ async def sc_poker(itx: discord.Interaction, opponent: discord.User | None = Non
         await itx.response.defer()
         arg = opponent.mention if opponent else ""
         await cmd_poker(SlashMessage(itx), arg)
+
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2526,7 +2535,9 @@ async def on_message(msg: discord.Message):
     elif cmd == "purge":await cmd_purge(msg, arg)
     elif cmd == "qr": await cmd_qr(msg, arg)
     elif cmd == "barcode": await cmd_barcode(msg, arg)
+
     elif cmd == "poker": await cmd_poker(msg, arg)
+
 
 # ───────────────── 起動 ─────────────────
 if __name__ == "__main__":
