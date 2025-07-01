@@ -229,7 +229,10 @@ class PokerMatch:
         if self.message is None:
             self.message = await self.channel.send(embed=embed)
         else:
-            await self.message.edit(embed=embed)
+            try:
+                await self.message.edit(embed=embed)
+            except discord.HTTPException:
+                self.message = await self.channel.send(embed=embed)
 
 
 class PokerView(discord.ui.View):
