@@ -12,6 +12,7 @@ YoneRai Discord Bot は音楽再生、翻訳、AI 質問に加え、ボイスチ
 ### 🎤 ボイス機能
 - **読み上げ `/yomiage`** — テキストチャンネルの発言を gTTS で音声化し、VC で再生します。
 - **文字起こし `/mojiokosi`** — VC の発言を Whisper で認識し、テキストチャンネルへ送信します。
+- **VC 状態確認 `/vc`** — 読み上げや文字起こしが有効なチャンネルを表示します。
   - 音声受信には `discord-ext-voice-recv` を使用しています。
   - Whisper (faster-whisper) はローカルで動作するため API キーは不要です。
 

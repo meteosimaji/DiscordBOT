@@ -154,6 +154,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答",
                 "/yomiage, y!yomiage : VCの発言を読み上げ",
                 "/mojiokosi, y!mojiokosi : 発言を文字起こし (Whisper 使用)",
+                "/vc, y!vc : 読み上げ・文字起こしチャンネルを表示",
                 "",
                 "🧑 ユーザー情報",
                 "/user [ユーザー], y!user <@メンション|ID> : プロフィール表示",
@@ -203,6 +204,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答",
                 "/yomiage, y!yomiage : VCの発言を読み上げ",
                 "/mojiokosi, y!mojiokosi : 発言を文字起こし (Whisper 使用)",
+                "/vc, y!vc : 読み上げ・文字起こしチャンネルを表示",
             ]
         ),
     ),
@@ -2007,6 +2009,31 @@ async def cmd_mojiokosi(msg: discord.Message):
     await msg.channel.send(content, view=view)
 
 
+async def cmd_vc(msg: discord.Message):
+    """現在読み上げ/文字起こし中のチャンネルを表示"""
+    yomi_list = []
+    for gid in reading_channels:
+        g = client.get_guild(gid)
+        if not g:
+            continue
+        vc = g.voice_client
+        if vc and vc.channel:
+            yomi_list.append(f"{g.name}: {vc.channel.mention}")
+
+    moji_list = []
+    for gid, cid in transcript_channels.items():
+        g = client.get_guild(gid)
+        ch = g.get_channel(cid) if g else client.get_channel(cid)
+        if ch:
+            name = g.name if g else "Unknown"
+            moji_list.append(f"{name}: {ch.mention}")
+
+    emb = discord.Embed(title="VC 状態一覧", colour=0x3498db)
+    emb.add_field(name="読み上げチャンネル", value="\n".join(yomi_list) or "—", inline=False)
+    emb.add_field(name="文字起こしチャンネル", value="\n".join(moji_list) or "—", inline=False)
+    await msg.channel.send(embed=emb)
+
+
 # ──────────── 🎵  自動切断ハンドラ ────────────
 
 @client.event
@@ -2334,6 +2361,16 @@ async def sc_mojiokosi(itx: discord.Interaction):
     try:
         await itx.response.defer()
         await cmd_mojiokosi(SlashMessage(itx))
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="vc", description="読み上げ・文字起こしチャンネルを表示")
+async def sc_vc(itx: discord.Interaction):
+
+    try:
+        await itx.response.defer()
+        await cmd_vc(SlashMessage(itx))
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2778,6 +2815,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "barcode": await cmd_barcode(msg, arg)
     elif cmd == "yomiage": await cmd_yomiage(msg)
     elif cmd == "mojiokosi": await cmd_mojiokosi(msg)
+    elif cmd == "vc": await cmd_vc(msg)
 
 # ───────────────── 起動 ─────────────────
 if __name__ == "__main__":
