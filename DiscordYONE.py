@@ -80,10 +80,22 @@ class _SlashChannel:
         return getattr(self._channel, name)
 
     async def send(self, *args, **kwargs):
+        delete_after = kwargs.pop("delete_after", None)
+
         if not self._itx.response.is_done():
             await self._itx.response.send_message(*args, **kwargs)
+            message = await self._itx.original_response()
         else:
-            await self._itx.followup.send(*args, **kwargs)
+            message = await self._itx.followup.send(*args, **kwargs)
+
+        if delete_after is not None:
+            await asyncio.sleep(delete_after)
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass
+
+        return message
 
 
     def typing(self):
