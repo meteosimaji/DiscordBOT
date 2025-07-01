@@ -1608,7 +1608,11 @@ async def cmd_purge(msg: discord.Message, arg: str):
         if m.id == msg.id:
             return False
         if (
-            m.type == discord.MessageType.application_command
+            m.type
+            in (
+                discord.MessageType.chat_input_command,
+                discord.MessageType.context_menu_command,
+            )
             and m.interaction
             and m.interaction.id == msg.id
         ):
