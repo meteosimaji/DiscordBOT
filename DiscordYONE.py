@@ -57,7 +57,7 @@ MESSAGE_CHANNEL_TYPES: tuple[type, ...] = (
 intents = discord.Intents.default()
 intents.message_content = True          # メッセージ内容を取得
 intents.reactions = True 
-intents.members   = True        # 追加
+intents.members   = True
 intents.presences = True 
 intents.voice_states    = True
 client = discord.Client(intents=intents)
