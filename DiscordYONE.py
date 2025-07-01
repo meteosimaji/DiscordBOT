@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from dataclasses import dataclass
 from typing import Any
+from poker import PokerGame, PokerView
 
 # ───────────────── TOKEN / KEY ─────────────────
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -163,6 +164,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice, y!XdY : ダイス（例: 2d6）",
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
+                "/poker, y!poker : BOTと1vs1ポーカー",
                 "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
                 "/help, y!help : このヘルプ",
                 "y!? … 返信で使うと名言化",
@@ -220,6 +222,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice, y!XdY : ダイス（例: 2d6）",
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
+                "/poker, y!poker : BOTと1vs1ポーカー",
                 "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
                 "/help, y!help : このヘルプ",
                 "y!? … 返信で使うと名言化",
@@ -1760,6 +1763,20 @@ async def on_voice_state_update(member, before, after):
                     st.panel_owner = None
 
 
+async def cmd_poker(msg: discord.Message):
+    """Start a simple heads-up poker game against the bot."""
+    game = PokerGame()
+    try:
+        dm = await msg.author.create_dm()
+        await dm.send(f"Your hand: {game.format_hand(game.player_hand)}")
+    except Exception:
+        await msg.reply("DMを送信できません。DMを許可してください。")
+        return
+
+    view = PokerView(game, msg.author)
+    await msg.channel.send("Poker started! Click Next to reveal cards.", view=view)
+
+
 async def cmd_help(msg: discord.Message):
     view = HelpView(msg.author.id)
     await msg.channel.send(embed=view._embed(), view=view)
@@ -1887,6 +1904,16 @@ async def sc_gpt(itx: discord.Interaction, text: str):
     try:
         await itx.response.defer()
         await cmd_gpt(SlashMessage(itx), text)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="poker", description="BOTとポーカーで遊ぶ")
+async def sc_poker(itx: discord.Interaction):
+
+    try:
+        await itx.response.defer()
+        await cmd_poker(SlashMessage(itx))
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2481,6 +2508,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "purge":await cmd_purge(msg, arg)
     elif cmd == "qr": await cmd_qr(msg, arg)
     elif cmd == "barcode": await cmd_barcode(msg, arg)
+    elif cmd == "poker": await cmd_poker(msg)
 
 # ───────────────── 起動 ─────────────────
 if __name__ == "__main__":
