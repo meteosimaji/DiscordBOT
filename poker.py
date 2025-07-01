@@ -107,6 +107,9 @@ class PokerMatch:
     def _current_player_is_bot(self) -> bool:
         return self.players[self.turn].user.id == self.bot_user.id
 
+    def _all_players_allin(self) -> bool:
+        return all(pl.chips == 0 or pl.folded for pl in self.players)
+
     def _next_turn(self):
         self.turn ^= 1
 
@@ -156,6 +159,9 @@ class PokerMatch:
         else:
             self._next_turn()
         await self._update_message()
+        if self._all_players_allin():
+            await self._auto_runout()
+            return
         if self._current_player_is_bot():
             await self._bot_action()
 
@@ -182,6 +188,10 @@ class PokerMatch:
 
     async def _showdown(self):
         p0, p1 = self.players
+        await self.channel.send(
+            f"Showdown! {p0.user.display_name}: {format_hand(p0.hand)} vs "
+            f"{p1.user.display_name}: {format_hand(p1.hand)}"
+        )
         s0 = self.evaluator.evaluate(self.board, p0.hand)
         s1 = self.evaluator.evaluate(self.board, p1.hand)
         if s0 < s1:
@@ -196,7 +206,9 @@ class PokerMatch:
 
     async def _finish_hand(self, winner: Player):
         winner.chips += self.pot
-        await self.channel.send(f"{winner.user.display_name} wins {self.pot} 💰")
+        await self.channel.send(
+            f"{winner.user.display_name} wins {self.pot} 💰 with board {format_hand(self.board)}"
+        )
         await self._check_game_end()
 
     async def _check_game_end(self):
@@ -229,6 +241,46 @@ class PokerMatch:
             await self.player_action(p.user, action, raise_to)
         else:
             await self.player_action(p.user, action)
+
+    def _calc_win_rates(self, iterations: int = 500) -> List[float]:
+        known = self.board + [c for pl in self.players for c in pl.hand]
+        deck_cards = [c for c in Deck().cards if c not in known]
+        wins = [0, 0]
+        ties = 0
+        for _ in range(iterations):
+            random.shuffle(deck_cards)
+            board = list(self.board)
+            board.extend(deck_cards[: 5 - len(board)])
+            s0 = self.evaluator.evaluate(board, self.players[0].hand)
+            s1 = self.evaluator.evaluate(board, self.players[1].hand)
+            if s0 < s1:
+                wins[0] += 1
+            elif s1 < s0:
+                wins[1] += 1
+            else:
+                ties += 1
+        total = iterations
+        return [
+            (wins[0] + ties / 2) / total,
+            (wins[1] + ties / 2) / total,
+        ]
+
+    def _format_win_rate(self, rates: List[float]) -> str:
+        p0, p1 = self.players
+        return (
+            f"Win odds: {p0.user.display_name} {rates[0]*100:.1f}% - "
+            f"{p1.user.display_name} {rates[1]*100:.1f}%"
+        )
+
+    async def _auto_runout(self):
+        while self.stage != "river":
+            await asyncio.sleep(1)
+            await self._next_stage()
+            rates = self._calc_win_rates()
+            await self.channel.send(self._format_win_rate(rates))
+            await self._update_message()
+        await asyncio.sleep(1)
+        await self._next_stage()
 
     async def _update_message(self, initial: bool = False):
         desc = f"Pot: 💰{self.pot}\n"
