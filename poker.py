@@ -53,6 +53,15 @@ class PokerMatch:
         self.turn = 0
         self.stage = ""
         self.message: Optional[discord.Message] = None
+        self.log_lines: List[str] = []
+        self.final_lines: List[str] = []
+
+    def _log(self, text: str):
+        self.log_lines.append(text)
+        joined = "\n".join(self.log_lines)
+        while len(joined) > 1000:
+            self.log_lines.pop(0)
+            joined = "\n".join(self.log_lines)
 
     async def start(self, channel: discord.abc.Messageable):
         self.channel = channel
@@ -61,6 +70,8 @@ class PokerMatch:
     async def _start_hand(self):
         self.deck = Deck()
         self.board = []
+        self.final_lines = []
+        self._log("--- New hand ---")
         for p in self.players:
             p.hand = self.deck.draw(2)
             p.bet = 0
@@ -87,6 +98,7 @@ class PokerMatch:
         p.bet = blind
         self.pot += blind
         self.current_bet = max(self.current_bet, blind)
+        self._log(f"{p.user.display_name} posts {blind}")
 
     async def _send_hands(self):
         for p in self.players:
@@ -121,6 +133,7 @@ class PokerMatch:
 
         if action == "fold":
             p.folded = True
+            self._log(f"{p.user.display_name} folds")
             await self._finish_hand(winner=opp)
             return
 
@@ -131,8 +144,10 @@ class PokerMatch:
             p.bet += amount
             self.pot += amount
             p.acted = True
+            self._log(f"{p.user.display_name} calls {amount}")
         elif action == "check":
             p.acted = True
+            self._log(f"{p.user.display_name} checks")
         elif action == "raise":
             if raise_to is None:
                 raise_to = self.current_bet + self.big_blind
@@ -143,6 +158,7 @@ class PokerMatch:
             self.current_bet = p.bet
             p.acted = True
             opp.acted = False
+            self._log(f"{p.user.display_name} raises to {p.bet}")
             if amount == p.chips and p.chips == 0:
                 await self._send_effect(f"{p.user.display_name} ALL-IN! 💥")
         elif action == "allin":
@@ -174,26 +190,35 @@ class PokerMatch:
             self.stage = "flop"
             self.board.extend(self.deck.draw(3))
             self.turn = 1 - self.dealer
+            self._log(f"Flop: {format_hand(self.board)}")
         elif self.stage == "flop":
             self.stage = "turn"
             self.board.extend(self.deck.draw(1))
             self.turn = 1 - self.dealer
+            self._log(f"Turn: {format_hand(self.board)}")
         elif self.stage == "turn":
             self.stage = "river"
             self.board.extend(self.deck.draw(1))
             self.turn = 1 - self.dealer
+            self._log(f"River: {format_hand(self.board)}")
         elif self.stage == "river":
             await self._showdown()
             return
 
     async def _showdown(self):
         p0, p1 = self.players
-        await self.channel.send(
+        self._log(
             f"Showdown! {p0.user.display_name}: {format_hand(p0.hand)} vs "
             f"{p1.user.display_name}: {format_hand(p1.hand)}"
         )
-        s0 = self.evaluator.evaluate(self.board, p0.hand)
-        s1 = self.evaluator.evaluate(self.board, p1.hand)
+        s0 = self.evaluator.evaluate(p0.hand, self.board)
+        s1 = self.evaluator.evaluate(p1.hand, self.board)
+        name0 = self.evaluator.class_to_string(self.evaluator.get_rank_class(s0))
+        name1 = self.evaluator.class_to_string(self.evaluator.get_rank_class(s1))
+        self.final_lines = [
+            f"{p0.user.display_name}: {format_hand(p0.hand)} ({name0})",
+            f"{p1.user.display_name}: {format_hand(p1.hand)} ({name1})",
+        ]
         if s0 < s1:
             await self._finish_hand(winner=p0)
         elif s1 < s0:
@@ -205,28 +230,30 @@ class PokerMatch:
             p1.chips += half
             if remainder:
                 self.players[1 - self.dealer].chips += remainder
-            await self.channel.send(
-                "It's a tie!"
-            )
+            self._log("It's a tie!")
+            await self._update_message()
             await self._check_game_end()
 
     async def _finish_hand(self, winner: Player):
         winner.chips += self.pot
-        await self.channel.send(
+        self._log(
             f"{winner.user.display_name} wins {self.pot} 💰 with board {format_hand(self.board)}"
         )
+        await self._update_message()
         await self._check_game_end()
 
     async def _check_game_end(self):
         losers = [p.user.display_name for p in self.players if p.chips <= 0]
         if losers:
             names = ", ".join(losers)
-            await self.channel.send(f"Game over! {names} ran out of chips.")
+            self._log(f"Game over! {names} ran out of chips.")
+            await self._update_message()
             return
         await self._start_hand()
 
     async def _send_effect(self, text: str):
-        await self.channel.send(text)
+        self._log(text)
+        await self._update_message()
 
     async def _bot_action(self):
         await asyncio.sleep(1)
@@ -257,8 +284,8 @@ class PokerMatch:
             random.shuffle(deck_cards)
             board = list(self.board)
             board.extend(deck_cards[: 5 - len(board)])
-            s0 = self.evaluator.evaluate(board, self.players[0].hand)
-            s1 = self.evaluator.evaluate(board, self.players[1].hand)
+            s0 = self.evaluator.evaluate(self.players[0].hand, board)
+            s1 = self.evaluator.evaluate(self.players[1].hand, board)
             if s0 < s1:
                 wins[0] += 1
             elif s1 < s0:
@@ -283,7 +310,7 @@ class PokerMatch:
             await asyncio.sleep(1)
             await self._next_stage()
             rates = self._calc_win_rates()
-            await self.channel.send(self._format_win_rate(rates))
+            self._log(self._format_win_rate(rates))
             await self._update_message()
         await asyncio.sleep(1)
         await self._next_stage()
@@ -291,12 +318,16 @@ class PokerMatch:
     async def _update_message(self, initial: bool = False):
         desc = f"Pot: 💰{self.pot}\n"
         desc += f"Board: {format_hand(self.board)}\n"
+        if self.final_lines:
+            desc += "\n".join(self.final_lines) + "\n"
         desc += "\n".join(
             f"{pl.user.display_name}: 💰{pl.chips}  Bet {pl.bet}" for pl in self.players
         )
         if not initial:
             desc += f"\nWaiting for {self.players[self.turn].user.display_name}"
         embed = discord.Embed(description=desc)
+        if self.log_lines:
+            embed.add_field(name="Log", value="\n".join(self.log_lines), inline=False)
         if self.message is None:
             self.message = await self.channel.send(embed=embed)
         else:
