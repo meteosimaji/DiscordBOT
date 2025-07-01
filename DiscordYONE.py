@@ -1927,7 +1927,11 @@ async def cmd_qr(msg: discord.Message, text: str) -> None:
         await msg.reply("QRコードにする文字列を指定してね！")
         return
 
-    import qrcode
+    try:
+        import qrcode
+    except ModuleNotFoundError:
+        await msg.reply("qrcode モジュールが見つかりません。`pip install qrcode` を実行してください。")
+        return
 
     qr = qrcode.QRCode(box_size=4, border=2)
     qr.add_data(text)
@@ -1955,9 +1959,13 @@ async def cmd_barcode(msg: discord.Message, text: str) -> None:
         await msg.reply("バーコードにする文字列を指定してね！")
         return
 
-    import barcode
-    from barcode.writer import ImageWriter
-    from barcode.errors import IllegalCharacterError
+    try:
+        import barcode
+        from barcode.writer import ImageWriter
+        from barcode.errors import IllegalCharacterError
+    except ModuleNotFoundError:
+        await msg.reply("barcode モジュールが見つかりません。`pip install python-barcode` を実行してください。")
+        return
     try:
         code = barcode.get("code128", text, writer=ImageWriter())
     except IllegalCharacterError:
