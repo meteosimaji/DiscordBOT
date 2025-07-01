@@ -90,6 +90,8 @@ class PokerMatch:
 
     async def _send_hands(self):
         for p in self.players:
+            if p.user.id == self.bot_user.id:
+                continue
             try:
                 dm = await p.user.create_dm()
                 await dm.send(f"Your hand: {format_hand(p.hand)}")
