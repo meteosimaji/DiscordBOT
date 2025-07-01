@@ -5,6 +5,9 @@ import asyncio
 import random
 from dataclasses import dataclass
 from typing import List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 import discord
 from treys import Card, Deck, Evaluator
@@ -90,8 +93,16 @@ class PokerMatch:
             try:
                 dm = await p.user.create_dm()
                 await dm.send(f"Your hand: {format_hand(p.hand)}")
-            except Exception:
-                pass
+            except discord.Forbidden as e:
+                logger.warning("Failed to send hand to %s: %s", p.user, e)
+                await self.channel.send(
+                    f"{p.user.mention} さん、DM がオフになっているためハンドを送れませんでした。"
+                )
+            except discord.HTTPException as e:
+                logger.error("HTTP error when sending hand to %s: %s", p.user, e)
+                await self.channel.send(
+                    f"{p.user.mention} さんへのDM送信でエラーが発生しました。"
+                )
 
     def _current_player_is_bot(self) -> bool:
         return self.players[self.turn].user.id == self.bot_user.id
