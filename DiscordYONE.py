@@ -661,7 +661,7 @@ class QuoteView(discord.ui.View):
         except Exception:
             await inter.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
-                "`y!queue` で新しいパネルを表示してね！",
+                "`y!?` をもう一度返信してみてね！",
                 ephemeral=True,
             )
 
@@ -673,7 +673,7 @@ class QuoteView(discord.ui.View):
         except Exception:
             await inter.response.send_message(
                 "⚠️ この操作パネルは無効です。\n"
-                "`y!queue` で新しいパネルを表示してね！",
+                "`y!?` をもう一度返信してみてね！",
                 ephemeral=True,
             )
 
