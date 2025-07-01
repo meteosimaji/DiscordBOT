@@ -2857,4 +2857,6 @@ async def on_message(msg: discord.Message):
 if __name__ == "__main__":
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN is not set. Check your environment variables or .env file")
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set. Check your environment variables or .env file")
     client.run(TOKEN)
