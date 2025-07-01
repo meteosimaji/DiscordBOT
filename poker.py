@@ -189,8 +189,10 @@ class PokerMatch:
         await self._check_game_end()
 
     async def _check_game_end(self):
-        if any(p.chips <= 0 for p in self.players):
-            await self.channel.send("Game over!")
+        losers = [p.user.display_name for p in self.players if p.chips <= 0]
+        if losers:
+            names = ", ".join(losers)
+            await self.channel.send(f"Game over! {names} ran out of chips.")
             return
         await self._start_hand()
 
