@@ -34,6 +34,16 @@ transcript_channels: dict[int, int] = {}
 # 現在 VC で使用中の AudioSink {guild_id: TranscriptionSink}
 active_sinks: dict[int, voice_recv.AudioSink] = {}
 
+
+def cleanup_active_sink(guild_id: int) -> None:
+    """Call cleanup on the active sink for the guild and remove it."""
+    sink = active_sinks.pop(guild_id, None)
+    if sink:
+        try:
+            sink.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up sink for {guild_id}: {e}")
+
 # Whisper model (loaded once)
 whisper_model = WhisperModel("base", device="cpu")
 
@@ -830,6 +840,7 @@ class YomiageView(discord.ui.View):
                     and vc.is_listening()
                 ):
                     vc.stop_listening()
+                    cleanup_active_sink(self.guild_id)
             content = "📢 読み上げ機能を無効にしました。"
         else:
             vc: YoneVoiceRecvClient | None = await ensure_voice_recv(SlashMessage(itx))
@@ -880,6 +891,7 @@ class MojiokosiView(discord.ui.View):
                     and vc.is_listening()
                 ):
                     vc.stop_listening()
+                    cleanup_active_sink(self.guild_id)
             content = "💬 文字起こしを無効にしました。"
         else:
             vc: YoneVoiceRecvClient | None = await ensure_voice_recv(SlashMessage(itx))
@@ -1658,6 +1670,7 @@ async def cmd_stop(msg: discord.Message, _):
     """Bot を VC から切断し、キュー初期化"""
     if vc := msg.guild.voice_client:
         await vc.disconnect()
+        cleanup_active_sink(msg.guild.id)
     state = guild_states.pop(msg.guild.id, None)
     if state:
         if state.playlist_task and not state.playlist_task.done():
@@ -1973,6 +1986,7 @@ async def cmd_yomiage(msg: discord.Message):
             vc = msg.guild.voice_client
             if vc and isinstance(vc, voice_recv.VoiceRecvClient) and vc.is_listening():
                 vc.stop_listening()
+                cleanup_active_sink(guild_id)
         content = "📢 読み上げ機能を無効にしました。"
     else:
         vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
@@ -1997,6 +2011,7 @@ async def cmd_mojiokosi(msg: discord.Message):
             vc = msg.guild.voice_client
             if vc and isinstance(vc, voice_recv.VoiceRecvClient) and vc.is_listening():
                 vc.stop_listening()
+                cleanup_active_sink(guild_id)
         content = "💬 文字起こしを無効にしました。"
     else:
         vc: YoneVoiceRecvClient | None = await ensure_voice_recv(msg)
@@ -2070,6 +2085,7 @@ async def on_voice_state_update(member, before, after):
                         pass
                     st.queue_msg = None
                     st.panel_owner = None
+            cleanup_active_sink(member.guild.id)
 
 
 async def cmd_help(msg: discord.Message):
