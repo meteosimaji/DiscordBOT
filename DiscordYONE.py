@@ -164,6 +164,8 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/say <text>, y!say <text> : エコー",
                 "/date, y!date : 日時表示（/dateはtimestampオプションもOK）",
                 "/dice, y!XdY : ダイス（例: 2d6）",
+                "/qr <text>, y!qr <text> : QRコード画像を生成",
+                "/barcode <text>, y!barcode <text> : バーコード画像を生成",
                 "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
                 "/help, y!help : このヘルプ",
                 "y!? … 返信で使うと名言化",
@@ -221,6 +223,8 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/say <text>, y!say <text> : エコー",
                 "/date, y!date : 日時表示（/dateはtimestampオプションもOK）",
                 "/dice, y!XdY : ダイス（例: 2d6）",
+                "/qr <text>, y!qr <text> : QRコード画像を生成",
+                "/barcode <text>, y!barcode <text> : バーコード画像を生成",
                 "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
                 "/help, y!help : このヘルプ",
                 "y!? … 返信で使うと名言化",
@@ -1902,6 +1906,59 @@ async def cmd_purge(msg: discord.Message, arg: str):
     await msg.channel.send(f"🧹 {deleted_total}件削除しました！", delete_after=5)
 
 
+async def cmd_qr(msg: discord.Message, text: str) -> None:
+    """指定テキストのQRコードを生成"""
+    text = text.strip()
+    if not text:
+        await msg.reply("QRコードにする文字列を指定してね！")
+        return
+
+    import qrcode
+
+    qr = qrcode.QRCode(box_size=4, border=2)
+    qr.add_data(text)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    path = tmp.name
+    tmp.close()
+    await asyncio.to_thread(img.save, path)
+
+    try:
+        await msg.channel.send(file=discord.File(path))
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+
+async def cmd_barcode(msg: discord.Message, text: str) -> None:
+    """指定テキストのバーコード(Code128)を生成"""
+    text = text.strip()
+    if not text:
+        await msg.reply("バーコードにする文字列を指定してね！")
+        return
+
+    import barcode
+    from barcode.writer import ImageWriter
+
+    code = barcode.get("code128", text, writer=ImageWriter())
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    path = tmp.name
+    tmp.close()
+    await asyncio.to_thread(code.write, path)
+
+    try:
+        await msg.channel.send(file=discord.File(path))
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+
 async def cmd_yomiage(msg: discord.Message):
     guild_id = msg.guild.id
     if reading_channels.get(guild_id):
@@ -2077,6 +2134,28 @@ async def sc_dice(itx: discord.Interaction, nota: str):
     try:
         await itx.response.defer()
         await cmd_dice(SlashMessage(itx), nota)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="qr", description="QR コードを生成")
+@app_commands.describe(text="QRコードにする文字列")
+async def sc_qr(itx: discord.Interaction, text: str):
+
+    try:
+        await itx.response.defer()
+        await cmd_qr(SlashMessage(itx), text)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="barcode", description="バーコードを生成")
+@app_commands.describe(text="バーコードにする文字列")
+async def sc_barcode(itx: discord.Interaction, text: str):
+
+    try:
+        await itx.response.defer()
+        await cmd_barcode(SlashMessage(itx), text)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2695,6 +2774,8 @@ async def on_message(msg: discord.Message):
     elif cmd == "forward": await cmd_forward(msg, arg)
     elif cmd == "server": await cmd_server(msg)
     elif cmd == "purge":await cmd_purge(msg, arg)
+    elif cmd == "qr": await cmd_qr(msg, arg)
+    elif cmd == "barcode": await cmd_barcode(msg, arg)
     elif cmd == "yomiage": await cmd_yomiage(msg)
     elif cmd == "mojiokosi": await cmd_mojiokosi(msg)
 
