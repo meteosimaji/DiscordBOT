@@ -199,9 +199,15 @@ class PokerMatch:
         elif s1 < s0:
             await self._finish_hand(winner=p1)
         else:
-            p0.chips += self.pot // 2
-            p1.chips += self.pot - self.pot // 2
-            await self.channel.send("It's a tie!")
+            half = self.pot // 2
+            remainder = self.pot % 2
+            p0.chips += half
+            p1.chips += half
+            if remainder:
+                self.players[1 - self.dealer].chips += remainder
+            await self.channel.send(
+                "It's a tie!"
+            )
             await self._check_game_end()
 
     async def _finish_hand(self, winner: Player):
