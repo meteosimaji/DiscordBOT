@@ -715,7 +715,6 @@ async def progress_updater(state: "MusicState"):
 import json, aiohttp, pathlib
 
 FAKEQUOTE_URL = "https://api.voids.top/fakequote"
-SAVE_NAME     = "YoneRAIMEIGEN.jpg"
 
 async def make_quote_image(user, text, color=False) -> pathlib.Path:
     """FakeQuote API で名言カードを生成しローカル保存 → Path を返す"""
@@ -749,9 +748,11 @@ async def make_quote_image(user, text, color=False) -> pathlib.Path:
         async with sess.get(img_url) as img:
             img_bytes = await img.read()
 
-    path = pathlib.Path(SAVE_NAME)
-    path.write_bytes(img_bytes)
-    return path
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+        tmp.write(img_bytes)
+        tmp_path = pathlib.Path(tmp.name)
+
+    return tmp_path
 
 # ──────────── ボタン付き View ────────────
 
@@ -778,6 +779,10 @@ class QuoteView(discord.ui.View):
             attachments=[discord.File(path, filename=path.name)],
             view=self
         )
+        try:
+            path.unlink()
+        except Exception:
+            pass
 
 
     @discord.ui.button(label="🎨 カラー", style=discord.ButtonStyle.success)
@@ -2812,6 +2817,10 @@ async def on_message(msg: discord.Message):
                 file=discord.File(img_path, filename=img_path.name),
                 view=view
             )
+            try:
+                img_path.unlink()
+            except Exception:
+                pass
 
             # y!? コマンドを削除
             await msg.delete()
