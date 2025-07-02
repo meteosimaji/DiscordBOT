@@ -391,6 +391,9 @@ class PokerMatch:
             f"All-in! {p0.user.display_name}: {format_hand(p0.hand)} vs "
             f"{p1.user.display_name}: {format_hand(p1.hand)}"
         )
+        # Immediately show win odds at the moment of showdown
+        rates = self._calc_win_rates()
+        self._log(self._format_win_rate(rates))
         await self._update_message()
         while self.stage != "river":
             await asyncio.sleep(1)
@@ -402,18 +405,19 @@ class PokerMatch:
         await self._next_stage()
 
     async def _update_message(self, initial: bool = False):
-        desc = f"Pot: 💰{self.pot}\n"
-        desc += f"Board: {format_hand(self.board)}\n"
+        desc = "\n".join(self.log_lines) if self.log_lines else ""
+        embed = discord.Embed(description=desc)
+
+        info = f"Pot: 💰{self.pot}\n"
+        info += f"Board: {format_hand(self.board)}\n"
         if self.final_lines:
-            desc += "\n".join(self.final_lines) + "\n"
-        desc += "\n".join(
+            info += "\n".join(self.final_lines) + "\n"
+        info += "\n".join(
             f"{pl.user.display_name}: 💰{pl.chips}  Bet {pl.bet}" for pl in self.players
         )
         if not initial:
-            desc += f"\nWaiting for {self.players[self.turn].user.display_name}"
-        embed = discord.Embed(description=desc)
-        if self.log_lines:
-            embed.add_field(name="Log", value="\n".join(self.log_lines), inline=False)
+            info += f"\nWaiting for {self.players[self.turn].user.display_name}"
+        embed.add_field(name="Game", value=info, inline=False)
         if self.message is None:
             self.message = await self.channel.send(embed=embed)
         else:
