@@ -139,6 +139,10 @@ class PokerMatch:
         p = self.players[self.turn]
         opp = self.players[self.turn ^ 1]
 
+        # If the opponent is already all-in, further raises are not allowed.
+        if opp.chips == 0 and action in {"raise", "allin"}:
+            action = "call"
+
         if action == "fold":
             p.folded = True
             self._log(f"{p.user.display_name} folds")
@@ -266,6 +270,7 @@ class PokerMatch:
     async def _bot_action(self):
         await asyncio.sleep(1)
         p = self.players[self.turn]
+        opp = self.players[self.turn ^ 1]
         to_call = self.current_bet - p.bet
 
         # Estimate win probability and expected hand strength for decision making
@@ -278,7 +283,10 @@ class PokerMatch:
 
         strong_hand = avg_rank <= max(5, board_best + 1)  # straight or near nuts
 
-        if to_call > 0:
+        if opp.chips == 0:
+            # Opponent is all-in; raising makes no sense
+            action = "call" if to_call > 0 else "check"
+        elif to_call > 0:
             if win_rate < 0.4:
                 action = "fold"
             elif win_rate < 0.6 and not strong_hand:
