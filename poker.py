@@ -156,6 +156,14 @@ class PokerMatch:
             p.bet += amount
             self.pot += amount
             p.acted = True
+            if amount < to_call:
+                # Player called all-in for less; refund the excess to opponent
+                diff = to_call - amount
+                opp.bet -= diff
+                opp.chips += diff
+                self.pot -= diff
+                self.current_bet = p.bet
+                self._log(f"{opp.user.display_name} gets back {diff}")
             self._log(f"{p.user.display_name} calls {amount}")
         elif action == "check":
             p.acted = True
