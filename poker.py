@@ -268,15 +268,10 @@ class PokerMatch:
         p = self.players[self.turn]
         to_call = self.current_bet - p.bet
 
-        # Estimate win probability and expected hand strength
+        # Estimate win probability and expected hand strength for decision making
         rates, avg_rank = self._calc_win_rates_and_strength(300)
         win_rate = rates[self.turn]
-        self._log(self._format_win_rate(rates))
-        self._log(f"Expected rank class: {avg_rank:.2f}")
         board_best = self._calc_board_best_class()
-        self._log(
-            f"Board best possible: {self.evaluator.class_to_string(board_best)}"
-        )
 
         action = "check"
         raise_to = None
@@ -375,6 +370,12 @@ class PokerMatch:
         return self.evaluator.get_rank_class(best)
 
     async def _auto_runout(self):
+        p0, p1 = self.players
+        self._log(
+            f"All-in! {p0.user.display_name}: {format_hand(p0.hand)} vs "
+            f"{p1.user.display_name}: {format_hand(p1.hand)}"
+        )
+        await self._update_message()
         while self.stage != "river":
             await asyncio.sleep(1)
             await self._next_stage()
