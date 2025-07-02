@@ -268,25 +268,31 @@ class PokerMatch:
         p = self.players[self.turn]
         to_call = self.current_bet - p.bet
 
-        # Estimate win probability using Monte Carlo simulation
-        rates = self._calc_win_rates(300)
+        # Estimate win probability and expected hand strength
+        rates, avg_rank = self._calc_win_rates_and_strength(300)
         win_rate = rates[self.turn]
         self._log(self._format_win_rate(rates))
+        self._log(f"Expected rank class: {avg_rank:.2f}")
+        board_best = self._calc_board_best_class()
+        self._log(
+            f"Board best possible: {self.evaluator.class_to_string(board_best)}"
+        )
 
         action = "check"
         raise_to = None
 
+        strong_hand = avg_rank <= max(5, board_best + 1)  # straight or near nuts
+
         if to_call > 0:
             if win_rate < 0.4:
                 action = "fold"
-            elif win_rate < 0.65:
+            elif win_rate < 0.6 and not strong_hand:
                 action = "call"
             else:
-                # Raise with a strong hand but avoid overbetting
                 action = "raise"
                 raise_to = min(self.current_bet + self.big_blind, p.bet + p.chips)
         else:
-            if win_rate > 0.6 and p.chips > self.big_blind:
+            if win_rate > 0.65 or strong_hand:
                 action = "raise"
                 raise_to = self.current_bet + self.big_blind
             else:
@@ -320,12 +326,53 @@ class PokerMatch:
             (wins[1] + ties / 2) / total,
         ]
 
+    def _calc_win_rates_and_strength(self, iterations: int = 300) -> tuple[List[float], float]:
+        known = self.board + [c for pl in self.players for c in pl.hand]
+        deck_cards = [c for c in Deck().cards if c not in known]
+        wins = [0, 0]
+        ties = 0
+        rank_sum = 0
+        bot_idx = self.turn
+        for _ in range(iterations):
+            random.shuffle(deck_cards)
+            board = list(self.board)
+            board.extend(deck_cards[: 5 - len(board)])
+            s0 = self.evaluator.evaluate(self.players[0].hand, board)
+            s1 = self.evaluator.evaluate(self.players[1].hand, board)
+            if s0 < s1:
+                wins[0] += 1
+            elif s1 < s0:
+                wins[1] += 1
+            else:
+                ties += 1
+            bot_score = s0 if bot_idx == 0 else s1
+            rank_sum += self.evaluator.get_rank_class(bot_score)
+        total = iterations
+        rates = [
+            (wins[0] + ties / 2) / total,
+            (wins[1] + ties / 2) / total,
+        ]
+        avg_rank = rank_sum / total
+        return rates, avg_rank
+
     def _format_win_rate(self, rates: List[float]) -> str:
         p0, p1 = self.players
         return (
             f"Win odds: {p0.user.display_name} {rates[0]*100:.1f}% - "
             f"{p1.user.display_name} {rates[1]*100:.1f}%"
         )
+
+    def _calc_board_best_class(self) -> int:
+        if len(self.board) < 5:
+            return 9  # High Card as default when board is incomplete
+        deck_cards = [c for c in Deck().cards if c not in self.board]
+        best = 7462
+        from itertools import combinations
+        for c1, c2 in combinations(deck_cards, 2):
+            score = self.evaluator.evaluate([c1, c2], self.board)
+            if score < best:
+                best = score
+        return self.evaluator.get_rank_class(best)
 
     async def _auto_runout(self):
         while self.stage != "river":
