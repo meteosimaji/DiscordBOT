@@ -1935,7 +1935,7 @@ async def sc_gpt(itx: discord.Interaction, text: str):
         await itx.followup.send(f"エラー発生: {e}")
 
 
-@tree.command(name="poker", description="BOTとポーカーで遊ぶ")
+@tree.command(name="poker", description="BOTやプレイヤーとポーカーで遊ぶ")
 
 @app_commands.describe(opponent="対戦相手。省略するとBOT")
 async def sc_poker(itx: discord.Interaction, opponent: discord.User | None = None):
