@@ -127,6 +127,9 @@ class PokerMatch:
     def _all_players_allin(self) -> bool:
         return all(pl.chips == 0 or pl.folded for pl in self.players)
 
+    def _any_player_allin(self) -> bool:
+        return any(pl.chips == 0 and not pl.folded for pl in self.players)
+
     def _next_turn(self):
         self.turn ^= 1
 
@@ -164,7 +167,7 @@ class PokerMatch:
             p.acted = True
             opp.acted = False
             self._log(f"{p.user.display_name} raises to {p.bet}")
-            if amount == p.chips and p.chips == 0:
+            if p.chips == 0:
                 await self._send_effect(f"{p.user.display_name} ALL-IN! 💥")
         elif action == "allin":
             await self.player_action(user, "raise", p.bet + p.chips)
@@ -177,13 +180,13 @@ class PokerMatch:
             return
         if p.acted and opp.acted and p.bet == opp.bet:
             await self._next_stage()
+            if self._any_player_allin():
+                await self._auto_runout()
+                return
         else:
             self._next_turn()
         await self._update_message()
-        if self._all_players_allin():
-            await self._auto_runout()
-            return
-        if self._current_player_is_bot():
+        if self._current_player_is_bot() and not self._any_player_allin():
             await self._bot_action()
 
     async def _next_stage(self):
