@@ -186,7 +186,7 @@ class PokerMatch:
         else:
             self._next_turn()
         await self._update_message()
-        if self._current_player_is_bot() and not self._any_player_allin():
+        if self._current_player_is_bot():
             await self._bot_action()
 
     async def _next_stage(self):
