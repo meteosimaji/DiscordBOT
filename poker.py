@@ -267,18 +267,32 @@ class PokerMatch:
         await asyncio.sleep(1)
         p = self.players[self.turn]
         to_call = self.current_bet - p.bet
+
+        # Estimate win probability using Monte Carlo simulation
+        rates = self._calc_win_rates(300)
+        win_rate = rates[self.turn]
+        self._log(self._format_win_rate(rates))
+
+        action = "check"
+        raise_to = None
+
         if to_call > 0:
-            if random.random() < 0.3:
+            if win_rate < 0.4:
                 action = "fold"
-            else:
+            elif win_rate < 0.65:
                 action = "call"
-        else:
-            if random.random() < 0.3:
+            else:
+                # Raise with a strong hand but avoid overbetting
                 action = "raise"
+                raise_to = min(self.current_bet + self.big_blind, p.bet + p.chips)
+        else:
+            if win_rate > 0.6 and p.chips > self.big_blind:
+                action = "raise"
+                raise_to = self.current_bet + self.big_blind
             else:
                 action = "check"
-        if action == "raise":
-            raise_to = self.current_bet + self.big_blind
+
+        if action == "raise" and raise_to is not None:
             await self.player_action(p.user, action, raise_to)
         else:
             await self.player_action(p.user, action)
