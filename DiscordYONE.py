@@ -1,7 +1,7 @@
 import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base64
 from discord import app_commands
 from openai import OpenAI
-import json, feedparser
+import json, feedparser, aiohttp
 
 # 音声読み上げや文字起こし機能は削除したため関連ライブラリは不要
 from urllib.parse import urlparse, parse_qs
@@ -25,6 +25,8 @@ TOKEN = os.getenv("DISCORD_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 NEWS_CONF_FILE = os.path.join(ROOT_DIR, "news_channel.json")
+EEW_CONF_FILE = os.path.join(ROOT_DIR, "eew_channel.json")
+EEW_LAST_FILE = os.path.join(ROOT_DIR, "last_eew.txt")
 
 def _load_news_channel() -> int:
     try:
@@ -44,7 +46,41 @@ def _save_news_channel(ch_id: int) -> None:
     except Exception as e:
         logger.error("failed to save news channel: %s", e)
 
+def _load_eew_channel() -> int:
+    try:
+        with open(EEW_CONF_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return int(data.get("channel_id", 0))
+    except Exception:
+        pass
+    return 0
+
+def _save_eew_channel(ch_id: int) -> None:
+    try:
+        with open(EEW_CONF_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"channel_id": ch_id}, f, ensure_ascii=False, indent=2)
+        os.replace(EEW_CONF_FILE + ".tmp", EEW_CONF_FILE)
+    except Exception as e:
+        logger.error("failed to save eew channel: %s", e)
+
+def _load_last_eew() -> str:
+    try:
+        with open(EEW_LAST_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+def _save_last_eew(eid: str) -> None:
+    try:
+        with open(EEW_LAST_FILE, "w", encoding="utf-8") as f:
+            f.write(eid)
+    except Exception as e:
+        logger.error("failed to save eew id: %s", e)
+
 NEWS_CHANNEL_ID = _load_news_channel()
+EEW_CHANNEL_ID = _load_eew_channel()
+LAST_EEW_ID = _load_last_eew()
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -191,6 +227,8 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
 
                 "/news <#channel> : ニュース投稿チャンネルを設定",
+                "/eew <#channel> : 地震速報チャンネルを設定",
+                "/eew <#channel> : 地震速報チャンネルを設定",
 
                 "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
 
@@ -1922,6 +1960,65 @@ async def hourly_news() -> None:
             except Exception as e:
                 logger.error("failed to send news: %s", e)
 
+eew_task: asyncio.Task | None = None
+EEW_LIST_URL = "https://www.jma.go.jp/bosai/quake/data/list.json"
+EEW_BASE_URL = "https://www.jma.go.jp/bosai/quake/data/"
+
+async def send_latest_eew(channel: discord.TextChannel):
+    async with aiohttp.ClientSession() as sess:
+        async with sess.get(EEW_LIST_URL, timeout=10) as resp:
+            data = await resp.json()
+        if not data:
+            return
+        latest = data[0]
+        await _send_eew(channel, latest)
+
+async def _send_eew(channel: discord.TextChannel, item: dict):
+    url = EEW_BASE_URL + item.get("json", "")
+    async with aiohttp.ClientSession() as sess:
+        async with sess.get(url, timeout=10) as resp:
+            detail = await resp.json(content_type=None)
+    head = detail.get("Head", {})
+    body = detail.get("Body", {})
+    area = body.get("Earthquake", {}).get("Hypocenter", {}).get("Area", {}).get("Name", "")
+    mag = body.get("Earthquake", {}).get("Magnitude", "")
+    maxint = body.get("Intensity", {}).get("Observation", {}).get("MaxInt", "")
+    dt = head.get("TargetDateTime", "")
+    title = item.get("ttl") or head.get("Title", "地震情報")
+    msg = f"**{title}**\n{dt} 頃 {area} M{mag} 最大震度{maxint}"
+    await channel.send(msg)
+
+async def watch_eew() -> None:
+    await client.wait_until_ready()
+    global LAST_EEW_ID
+    while True:
+        try:
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(EEW_LIST_URL, timeout=10) as resp:
+                    data = await resp.json()
+            if data:
+                latest = data[0]
+                eid = latest.get("json", "")
+                if eid and eid != LAST_EEW_ID:
+                    LAST_EEW_ID = eid
+                    _save_last_eew(eid)
+                    if EEW_CHANNEL_ID:
+                        ch = client.get_channel(EEW_CHANNEL_ID)
+                        if ch is None:
+                            try:
+                                ch = await client.fetch_channel(EEW_CHANNEL_ID)
+                            except Exception as e:
+                                logger.error("failed to fetch eew channel: %s", e)
+                                ch = None
+                        if isinstance(ch, MESSAGE_CHANNEL_TYPES):
+                            try:
+                                await _send_eew(ch, latest)
+                            except Exception as e:
+                                logger.error("failed to send eew: %s", e)
+        except Exception as e:
+            logger.error("EEW monitor error: %s", e)
+        await asyncio.sleep(60)
+
 
 
 # ───────────────── イベント ─────────────────
@@ -1943,6 +2040,9 @@ async def on_ready():
     global news_task
     if news_task is None or news_task.done():
         news_task = asyncio.create_task(hourly_news())
+    global eew_task
+    if eew_task is None or eew_task.done():
+        eew_task = asyncio.create_task(watch_eew())
 
 # ----- Slash command wrappers -----
 @tree.command(name="ping", description="Botの応答速度を表示")
@@ -2065,6 +2165,29 @@ async def sc_news(itx: discord.Interaction, channel: discord.TextChannel):
     await itx.response.send_message(
         f"ニュースチャンネルを {channel.mention} に設定しました。"
     )
+    try:
+        await send_latest_news(channel)
+    except Exception as e:
+        await itx.followup.send(f"テスト送信に失敗: {e}")
+
+
+@tree.command(name="eew", description="地震速報送信先チャンネルを設定")
+@app_commands.describe(channel="投稿先チャンネル")
+async def sc_eew(itx: discord.Interaction, channel: discord.TextChannel):
+
+    if not itx.user.guild_permissions.administrator:
+        await itx.response.send_message("管理者専用コマンドです。", ephemeral=True)
+        return
+    global EEW_CHANNEL_ID
+    EEW_CHANNEL_ID = channel.id
+    _save_eew_channel(EEW_CHANNEL_ID)
+    await itx.response.send_message(
+        f"地震速報チャンネルを {channel.mention} に設定しました。"
+    )
+    try:
+        await send_latest_eew(channel)
+    except Exception as e:
+        await itx.followup.send(f"テスト送信に失敗: {e}")
 
 
 @tree.command(name="poker", description="BOTやプレイヤーとポーカーで遊ぶ")
