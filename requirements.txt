@@ -9,3 +9,4 @@ qrcode
 python-barcode[images]
 treys
 feedparser
+matplotlib

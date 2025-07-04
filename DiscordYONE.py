@@ -225,6 +225,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice, y!XdY : ダイス（例: 2d6）",
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
+                "/tex <式>, y!tex <式> : TeX 数式を画像に変換",
 
                 "/news <#channel>, y!news <#channel> : ニュース投稿チャンネルを設定",
                 "/eew <#channel>, y!eew <#channel> : 地震速報チャンネルを設定",
@@ -288,6 +289,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice, y!XdY : ダイス（例: 2d6）",
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
+                "/tex <式>, y!tex <式> : TeX 数式を画像に変換",
 
                 "/news <#channel>, y!news <#channel> : ニュース投稿チャンネルを設定",
                 "/eew <#channel>, y!eew <#channel> : 地震速報チャンネルを設定",
@@ -1795,6 +1797,41 @@ async def cmd_barcode(msg: discord.Message, text: str) -> None:
             pass
 
 
+async def cmd_tex(msg: discord.Message, formula: str) -> None:
+    """Render TeX formula to an image."""
+    formula = formula.strip()
+    if not formula:
+        await msg.reply("数式を指定してね！")
+        return
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError:
+        await msg.reply(
+            "matplotlib モジュールが見つかりません。`pip install matplotlib` を実行してください。"
+        )
+        return
+
+    fig = plt.figure()
+    fig.text(0.5, 0.5, f"${formula}$", fontsize=20, ha="center", va="center")
+    plt.axis("off")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    path = tmp.name
+    tmp.close()
+    await asyncio.to_thread(fig.savefig, path, bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+
+    try:
+        await msg.channel.send(file=discord.File(path))
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+
 
 
 # ──────────── 🎵  自動切断ハンドラ ────────────
@@ -2301,6 +2338,17 @@ async def sc_gpt(itx: discord.Interaction, text: str):
     try:
         await itx.response.defer()
         await cmd_gpt(SlashMessage(itx), text)
+    except Exception as e:
+        await itx.followup.send(f"エラー発生: {e}")
+
+
+@tree.command(name="tex", description="TeX 数式を画像に変換")
+@app_commands.describe(expr="TeX 数式")
+async def sc_tex(itx: discord.Interaction, expr: str):
+
+    try:
+        await itx.response.defer()
+        await cmd_tex(SlashMessage(itx), expr)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -2947,6 +2995,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "purge":await cmd_purge(msg, arg)
     elif cmd == "qr": await cmd_qr(msg, arg)
     elif cmd == "barcode": await cmd_barcode(msg, arg)
+    elif cmd == "tex": await cmd_tex(msg, arg)
     elif cmd == "news": await cmd_news(msg, arg)
     elif cmd == "eew": await cmd_eew(msg, arg)
 
