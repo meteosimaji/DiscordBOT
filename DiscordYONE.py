@@ -2048,8 +2048,50 @@ async def _send_eew(channel: discord.TextChannel, item: dict):
     maxint = body.get("Intensity", {}).get("Observation", {}).get("MaxInt", "")
     dt = head.get("TargetDateTime", "")
     title = item.get("ttl") or head.get("Title", "地震情報")
-    msg = f"**{title}**\n{dt} 頃 {area} M{mag} 最大震度{maxint}"
-    await channel.send(msg)
+
+    # ---- Embed Construction ----
+    intensity_map = {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5-": 5,
+        "5+": 5.5,
+        "6-": 6,
+        "6+": 6.5,
+        "7": 7,
+    }
+    value = None
+    if isinstance(maxint, str) and maxint in intensity_map:
+        value = intensity_map[maxint]
+    else:
+        try:
+            value = float(mag)
+        except Exception:
+            value = None
+
+    if value is None:
+        colour = discord.Colour.light_grey()
+    elif value >= 6:
+        colour = discord.Colour.red()
+    elif value >= 4:
+        colour = discord.Colour.orange()
+    elif value >= 3:
+        colour = discord.Colour.gold()
+    else:
+        colour = discord.Colour.green()
+
+    embed = discord.Embed(title=title, colour=colour)
+    embed.add_field(name="発生時刻", value=dt or "N/A", inline=False)
+    embed.add_field(name="震源地", value=area or "N/A")
+    embed.add_field(name="マグニチュード", value=str(mag) or "N/A")
+    embed.add_field(name="最大震度", value=str(maxint) or "N/A")
+
+    img_path = item.get("json", "").replace(".json", ".png")
+    if img_path:
+        embed.set_image(url=EEW_BASE_URL + img_path)
+
+    await channel.send(embed=embed)
 
 async def watch_eew() -> None:
     await client.wait_until_ready()
