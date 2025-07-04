@@ -226,9 +226,8 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
 
-                "/news <#channel> : ニュース投稿チャンネルを設定",
-                "/eew <#channel> : 地震速報チャンネルを設定",
-                "/eew <#channel> : 地震速報チャンネルを設定",
+                "/news <#channel>, y!news <#channel> : ニュース投稿チャンネルを設定",
+                "/eew <#channel>, y!eew <#channel> : 地震速報チャンネルを設定",
 
                 "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
 
@@ -290,7 +289,8 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/qr <text>, y!qr <text> : QRコード画像を生成",
                 "/barcode <text>, y!barcode <text> : バーコード画像を生成",
 
-                "/news <#channel> : ニュース投稿チャンネルを設定",
+                "/news <#channel>, y!news <#channel> : ニュース投稿チャンネルを設定",
+                "/eew <#channel>, y!eew <#channel> : 地震速報チャンネルを設定",
 
                 "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
 
