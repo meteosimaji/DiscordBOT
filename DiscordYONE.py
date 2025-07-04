@@ -4,7 +4,7 @@ from openai import OpenAI
 import json, feedparser, aiohttp
 
 # 音声読み上げや文字起こし機能は削除したため関連ライブラリは不要
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlunparse
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
@@ -1978,6 +1978,28 @@ async def _summarize(text: str) -> str:
         logger.error("summary failed: %s", e)
         return text[:200]
 
+def _shorten_url(url: str) -> str:
+    """Remove query and fragment from URL for display"""
+    try:
+        p = urlparse(url)
+        return urlunparse(p._replace(query="", fragment=""))
+    except Exception:
+        return url
+
+async def _fetch_thumbnail(url: str) -> str | None:
+    """Fetch og:image from article page"""
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(url, timeout=10) as resp:
+                html = await resp.text()
+        m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](.*?)["\']', html, re.IGNORECASE)
+        if not m:
+            m = re.search(r'<meta[^>]+content=["\'](.*?)["\'][^>]+property=["\']og:image["\']', html, re.IGNORECASE)
+        return m.group(1) if m else None
+    except Exception as e:
+        logger.error("thumb fetch failed for %s: %s", url, e)
+        return None
+
 async def send_latest_news(channel: discord.TextChannel):
     feed = feedparser.parse(NEWS_FEED_URL)
     today = datetime.date.today().isoformat()
@@ -1998,7 +2020,18 @@ async def send_latest_news(channel: discord.TextChannel):
     for ent in new_entries:
         text = re.sub(r"<.*?>", "", ent.get("summary", ""))
         summary = await _summarize(text)
-        await channel.send(f"**{ent.title}**\n{ent.link}\n{summary}")
+        emb = discord.Embed(
+            title=ent.title,
+            url=_shorten_url(ent.link),
+            description=summary,
+            colour=0x3498db,
+        )
+        if getattr(ent, "source", None) and getattr(ent.source, "title", None):
+            emb.set_footer(text=ent.source.title)
+        thumb = await _fetch_thumbnail(ent.link)
+        if thumb:
+            emb.set_thumbnail(url=thumb)
+        await channel.send(embed=emb)
 
 news_task: asyncio.Task | None = None
 
