@@ -1158,12 +1158,8 @@ async def cmd_date(msg: discord.Message, arg: str):
 async def build_user_embed(target: discord.User | discord.Member,
                            member: discord.Member | None,
                            channel: discord.abc.Messageable) -> discord.Embed:
-    # Fetch the latest Member info for accurate presence
-    if member is not None:
-        try:
-            member = await member.guild.fetch_member(member.id)
-        except Exception:
-            pass
+    # Keep the provided Member instance to preserve presence information.
+    # Fetching via HTTP would discard presence data.
     embed = discord.Embed(title="ユーザー情報", colour=0x2ecc71)
     embed.set_thumbnail(url=target.display_avatar.url)
 
@@ -1188,10 +1184,7 @@ async def build_user_embed(target: discord.User | discord.Member,
         embed.add_field(name="ニックネーム", value=member.nick or '—')
         roles = [r for r in member.roles if r.name != '@everyone']
         embed.add_field(name="役職数", value=str(len(roles)))
-        if member.top_role.name == member.top_role.mention:
-            highest_role = member.top_role.mention
-        else:
-            highest_role = f"{member.top_role.name} {member.top_role.mention}"
+        highest_role = member.top_role.mention
         embed.add_field(name="最高ロール", value=highest_role)
         perms = ", ".join([name for name, v in member.guild_permissions if v]) or '—'
         embed.add_field(name="権限一覧", value=perms, inline=False)
@@ -1986,9 +1979,22 @@ def _shorten_url(url: str) -> str:
     except Exception:
         return url
 
+def _resolve_google_news_url(url: str) -> str:
+    """Return original article URL from Google News redirect"""
+    try:
+        p = urlparse(url)
+        if "news.google.com" in p.netloc:
+            q = parse_qs(p.query)
+            if "url" in q and q["url"]:
+                return q["url"][0]
+    except Exception:
+        pass
+    return url
+
 async def _fetch_thumbnail(url: str) -> str | None:
     """Fetch og:image from article page"""
     try:
+        url = _resolve_google_news_url(url)
         async with aiohttp.ClientSession() as sess:
             async with sess.get(url, timeout=10) as resp:
                 html = await resp.text()
@@ -2020,15 +2026,16 @@ async def send_latest_news(channel: discord.TextChannel):
     for ent in new_entries:
         text = re.sub(r"<.*?>", "", ent.get("summary", ""))
         summary = await _summarize(text)
+        article_url = _resolve_google_news_url(ent.link)
         emb = discord.Embed(
             title=ent.title,
-            url=_shorten_url(ent.link),
+            url=_shorten_url(article_url),
             description=summary,
             colour=0x3498db,
         )
         if getattr(ent, "source", None) and getattr(ent.source, "title", None):
             emb.set_footer(text=ent.source.title)
-        thumb = await _fetch_thumbnail(ent.link)
+        thumb = await _fetch_thumbnail(article_url)
         if thumb:
             emb.set_thumbnail(url=thumb)
         await channel.send(embed=emb)
@@ -2080,6 +2087,14 @@ async def _send_eew(channel: discord.TextChannel, item: dict):
     mag = body.get("Earthquake", {}).get("Magnitude", "")
     maxint = body.get("Intensity", {}).get("Observation", {}).get("MaxInt", "")
     dt = head.get("TargetDateTime", "")
+    formatted_dt = dt
+    if dt:
+        try:
+            dt_obj = datetime.datetime.fromisoformat(dt)
+            weekday = "月火水木金土日"[dt_obj.weekday()]
+            formatted_dt = dt_obj.strftime(f"%Y年%m月%d日({weekday})%H:%M:%S")
+        except Exception:
+            pass
     title = item.get("ttl") or head.get("Title", "地震情報")
 
     # ---- Embed Construction ----
@@ -2115,12 +2130,12 @@ async def _send_eew(channel: discord.TextChannel, item: dict):
         colour = discord.Colour.green()
 
     embed = discord.Embed(title=title, colour=colour)
-    embed.add_field(name="発生時刻", value=dt or "N/A", inline=False)
+    embed.add_field(name="発生時刻", value=formatted_dt or "N/A", inline=False)
     embed.add_field(name="震源地", value=area or "N/A")
     embed.add_field(name="マグニチュード", value=str(mag) or "N/A")
     embed.add_field(name="最大震度", value=str(maxint) or "N/A")
 
-    img_path = item.get("json", "").replace(".json", ".png")
+    img_path = item.get("img") or item.get("json", "").replace(".json", ".png")
     if img_path:
         embed.set_image(url=EEW_BASE_URL + img_path)
 
