@@ -1874,6 +1874,69 @@ async def cmd_help(msg: discord.Message):
     await msg.channel.send(embed=view._embed(), view=view)
 
 
+def _parse_channel(arg: str, guild: discord.Guild | None) -> discord.TextChannel | None:
+    """Return channel from mention or ID, or None if not found or not text channel."""
+    if not guild or not arg:
+        return None
+    cid = arg.strip()
+    if cid.startswith("<#") and cid.endswith(">"):
+        cid = cid[2:-1]
+    if not cid.isdigit():
+        return None
+    ch = guild.get_channel(int(cid))
+    if isinstance(ch, discord.TextChannel):
+        return ch
+    return None
+
+
+async def cmd_news(msg: discord.Message, arg: str) -> None:
+    """ニュース送信先チャンネルを設定"""
+    if not msg.guild:
+        await msg.reply("サーバー内でのみ使用できます。")
+        return
+    if not msg.author.guild_permissions.administrator:
+        await msg.reply("管理者専用コマンドです。", delete_after=5)
+        return
+    channel = _parse_channel(arg, msg.guild) or (
+        msg.channel if isinstance(msg.channel, discord.TextChannel) else None
+    )
+    if channel is None:
+        await msg.reply("`y!news #チャンネル` の形式で指定してね！")
+        return
+    global NEWS_CHANNEL_ID
+    NEWS_CHANNEL_ID = channel.id
+    _save_news_channel(NEWS_CHANNEL_ID)
+    await msg.channel.send(f"ニュースチャンネルを {channel.mention} に設定しました。")
+    try:
+        await send_latest_news(channel)
+    except Exception as e:
+        await msg.channel.send(f"テスト送信に失敗: {e}")
+
+
+async def cmd_eew(msg: discord.Message, arg: str) -> None:
+    """地震速報送信先チャンネルを設定"""
+    if not msg.guild:
+        await msg.reply("サーバー内でのみ使用できます。")
+        return
+    if not msg.author.guild_permissions.administrator:
+        await msg.reply("管理者専用コマンドです.", delete_after=5)
+        return
+    channel = _parse_channel(arg, msg.guild) or (
+        msg.channel if isinstance(msg.channel, discord.TextChannel) else None
+    )
+    if channel is None:
+        await msg.reply("`y!eew #チャンネル` の形式で指定してね！")
+        return
+    global EEW_CHANNEL_ID
+    EEW_CHANNEL_ID = channel.id
+    _save_eew_channel(EEW_CHANNEL_ID)
+    await msg.channel.send(f"地震速報チャンネルを {channel.mention} に設定しました。")
+    try:
+        await send_latest_eew(channel)
+    except Exception as e:
+        await msg.channel.send(f"テスト送信に失敗: {e}")
+
+
 # ───────────────── ニュース自動送信 ─────────────────
 NEWS_FEED_URL = "https://news.google.com/rss?hl=ja&gl=JP&ceid=JP:ja"
 NEWS_FILE = os.path.join(ROOT_DIR, "sent_news.json")
@@ -2794,6 +2857,8 @@ async def on_message(msg: discord.Message):
     elif cmd == "purge":await cmd_purge(msg, arg)
     elif cmd == "qr": await cmd_qr(msg, arg)
     elif cmd == "barcode": await cmd_barcode(msg, arg)
+    elif cmd == "news": await cmd_news(msg, arg)
+    elif cmd == "eew": await cmd_eew(msg, arg)
 
     elif cmd == "poker": await cmd_poker(msg, arg)
 
