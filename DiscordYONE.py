@@ -2,6 +2,7 @@ import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base
 from discord import app_commands
 from openai import OpenAI
 import json, feedparser, aiohttp
+from bs4 import BeautifulSoup
 
 # 音声読み上げや文字起こし機能は削除したため関連ライブラリは不要
 from urllib.parse import urlparse, parse_qs, urlunparse
@@ -1978,6 +1979,7 @@ async def cmd_eew(msg: discord.Message, arg: str) -> None:
 # ───────────────── ニュース自動送信 ─────────────────
 NEWS_FEED_URL = "https://news.google.com/rss?hl=ja&gl=JP&ceid=JP:ja"
 NEWS_FILE = os.path.join(ROOT_DIR, "sent_news.json")
+DAILY_NEWS_FILE = os.path.join(ROOT_DIR, "daily_news.json")
 
 def _load_sent_news() -> dict:
     try:
@@ -1998,6 +2000,26 @@ def _save_sent_news(data: dict) -> None:
         logger.error("failed to save news file: %s", e)
 
 sent_news = _load_sent_news()
+
+def _load_daily_news() -> dict:
+    try:
+        with open(DAILY_NEWS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+def _save_daily_news(data: dict) -> None:
+    try:
+        with open(DAILY_NEWS_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(DAILY_NEWS_FILE + ".tmp", DAILY_NEWS_FILE)
+    except Exception as e:
+        logger.error("failed to save daily news file: %s", e)
+
+daily_news = _load_daily_news()
 
 async def _summarize(text: str) -> str:
     loop = asyncio.get_running_loop()
@@ -2051,6 +2073,24 @@ async def _fetch_thumbnail(url: str) -> str | None:
         logger.error("thumb fetch failed for %s: %s", url, e)
         return None
 
+async def _fetch_article_text(url: str) -> str | None:
+    """Fetch article body text"""
+    try:
+        url = _resolve_google_news_url(url)
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(url, timeout=10) as resp:
+                html = await resp.text()
+        soup = BeautifulSoup(html, "html.parser")
+        article = soup.find("article")
+        if article:
+            text = article.get_text(separator=" ", strip=True)
+        else:
+            text = " ".join(p.get_text(strip=True) for p in soup.find_all("p"))
+        return text[:5000]
+    except Exception as e:
+        logger.error("article fetch failed for %s: %s", url, e)
+        return None
+
 async def send_latest_news(channel: discord.TextChannel):
     feed = feedparser.parse(NEWS_FEED_URL)
     today = datetime.date.today().isoformat()
@@ -2062,15 +2102,21 @@ async def send_latest_news(channel: discord.TextChannel):
             continue
         new_entries.append(ent)
         sent_urls.append(url)
-        if len(new_entries) >= 3:
+        if len(new_entries) >= 7:
             break
     if not new_entries:
         return
     sent_news[today] = sent_urls
     _save_sent_news(sent_news)
     for ent in new_entries:
-        text = re.sub(r"<.*?>", "", ent.get("summary", ""))
+        article_url = _resolve_google_news_url(ent.link)
+        text = await _fetch_article_text(article_url)
+        if not text:
+            text = re.sub(r"<.*?>", "", ent.get("summary", ""))
         summary = await _summarize(text)
+        day_list = daily_news.get(today, [])
+        day_list.append(f"{ent.title}。{summary}")
+        daily_news[today] = day_list
         article_url = _resolve_google_news_url(ent.link)
         emb = discord.Embed(
             title=ent.title,
@@ -2084,6 +2130,23 @@ async def send_latest_news(channel: discord.TextChannel):
         if thumb:
             emb.set_thumbnail(url=thumb)
         await channel.send(embed=emb)
+    _save_daily_news(daily_news)
+
+async def send_daily_digest(channel: discord.TextChannel):
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    items = daily_news.get(yesterday)
+    if not items:
+        return
+    text = "\n".join(items)
+    summary = await _summarize(text)
+    emb = discord.Embed(
+        title=f"{yesterday} のニュースまとめ",
+        description=summary,
+        colour=0x95a5a6,
+    )
+    await channel.send(embed=emb)
+    del daily_news[yesterday]
+    _save_daily_news(daily_news)
 
 news_task: asyncio.Task | None = None
 
@@ -2105,6 +2168,9 @@ async def hourly_news() -> None:
         if isinstance(channel, MESSAGE_CHANNEL_TYPES):
             try:
                 await send_latest_news(channel)
+                current_hour = datetime.datetime.now().hour
+                if current_hour == 0:
+                    await send_daily_digest(channel)
             except Exception as e:
                 logger.error("failed to send news: %s", e)
 

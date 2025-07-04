@@ -10,3 +10,4 @@ python-barcode[images]
 treys
 feedparser
 matplotlib
+beautifulsoup4
