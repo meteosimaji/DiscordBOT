@@ -248,25 +248,36 @@ HELP_PAGES: list[tuple[str, str]] = [
         "🎵 音楽",
         "\n".join(
             [
-                "y!play … 添付ファイルを先に、テキストはカンマ区切りで順に追加",
-                "/play … query/file 引数を入力した順に追加 (query 内のカンマは分割されません)",
-                "/queue, y!queue : キューの表示や操作（Skip/Shuffle/Loop/Pause/Resume/Leaveなど）",
-                "/remove <番号>, y!remove <番号> : 指定した曲をキューから削除",
-                "/keep <番号>, y!keep <番号> : 指定番号以外の曲をまとめて削除",
-                "/stop, y!stop : VCから退出",
-                "/seek <時間>, y!seek <時間> : 再生位置を変更",
-                "/rewind <時間>, y!rewind <時間> : 再生位置を指定秒数だけ巻き戻し",
-                "/forward <時間>, y!forward <時間> : 再生位置を指定秒数だけ早送り",
-                "　※例: y!rewind 1分, y!forward 30, /rewind 1:10",
+                "y!play <URL|キーワード> : 再生キューに追加 (カンマ区切りで複数指定可)",
+                "　例: y!play Never Gonna Give You Up, Bad Apple!!",
+                "/play はファイル添付もOK、入力順に再生",
+                "/queue でキューを表示、ボタンから Skip/Loop など操作",
+                "/remove 2 で2番目を削除、/keep 1 で1曲だけ残す",
+                "/seek 1:30 で1分30秒へ移動、/forward 30 で30秒早送り",
+                "/stop または y!stop でボイスチャンネルから退出",
             ]
         ),
     ),
-    ("💬 翻訳", "国旗リアクションで自動翻訳"),
+    (
+        "💬 翻訳",
+        "\n".join(
+            [
+                "メッセージに国旗リアクションを付けるとその言語へ自動翻訳",
+                "　例: 🇺🇸 を押すと英語に翻訳、🇰🇷 なら韓国語に翻訳",
+                "GPT-4.1 が翻訳文を生成し返信します (2000文字制限あり)",
+            ]
+        ),
+    ),
     (
         "🤖 AI/ツール",
         "\n".join(
             [
-                "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）で質問や相談ができるAI回答",
+                "/gpt <質問>, y? <質問> : ChatGPT（GPT-4.1）へ質問",
+                "　例: /gpt Pythonとは？",
+                "/qr <text>, y!qr <text> : QRコード画像を生成",
+                "/barcode <text>, y!barcode <text> : Code128 バーコードを生成",
+                "/tex <式>, y!tex <式> : TeX 数式を画像化",
+                "どのコマンドもテキスト/スラッシュ形式に対応",
             ]
         ),
     ),
@@ -274,8 +285,10 @@ HELP_PAGES: list[tuple[str, str]] = [
         "🧑 ユーザー情報",
         "\n".join(
             [
-                "/user [ユーザー], y!user <@メンション|ID> : プロフィール表示",
-                "/server, y!server : サーバー情報表示",
+                "/user [ユーザー] : 指定ユーザーのプロフィールを表示",
+                "　例: /user @someone または y!user 1234567890",
+                "/server : 現在のサーバー情報を表示",
+                "自分にも他人にも使用できます",
             ]
         ),
     ),
@@ -283,22 +296,15 @@ HELP_PAGES: list[tuple[str, str]] = [
         "🕹️ その他",
         "\n".join(
             [
-                "/ping, y!ping : 応答速度",
-                "/say <text>, y!say <text> : エコー",
-                "/date, y!date : 日時表示（/dateはtimestampオプションもOK）",
-                "/dice, y!XdY : ダイス（例: 2d6）",
-                "/qr <text>, y!qr <text> : QRコード画像を生成",
-                "/barcode <text>, y!barcode <text> : バーコード画像を生成",
-                "/tex <式>, y!tex <式> : TeX 数式を画像に変換",
-
-                "/news <#channel>, y!news <#channel> : ニュース投稿チャンネルを設定",
-                "/eew <#channel>, y!eew <#channel> : 地震速報チャンネルを設定",
-
-                "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
-
-                "/purge <n|link>, y!purge <n|link> : メッセージ一括削除",
-                "/help, y!help : このヘルプ",
-                "y!? … 返信で使うと名言化",
+                "/ping : BOTの応答速度を測定",
+                "/say <text> : 入力内容をそのまま返答 (2000文字超はファイル)",
+                "/date [timestamp] : 日付を表示。省略時は現在時刻",
+                "/dice または y!XdY : サイコロを振る (例: 2d6)",
+                "/news <#channel> : ニュース投稿先を設定 (管理者のみ)",
+                "/eew <#channel> : 地震速報の通知先を設定 (管理者のみ)",
+                "/poker [@user] : 友達やBOTと1vs1ポーカー対戦",
+                "/purge <n|link> : メッセージをまとめて削除",
+                "返信で y!? と送るとその内容を名言化",
             ]
         ),
     ),
@@ -306,10 +312,12 @@ HELP_PAGES: list[tuple[str, str]] = [
         "🔰 使い方",
         "\n".join(
             [
-                "テキストコマンド: y!やy?などで始めて送信",
-                "　例: y!play Never Gonna Give You Up",
-                "スラッシュコマンド: /で始めてコマンド名を選択",
-                "　例: /play /queue /remove 1 2 3 /keep 2 /gpt 猫とは？",
+                "テキストコマンドは y! または y? から入力",
+                "スラッシュコマンドは / を押してコマンド名を選択",
+                "音楽系はボイスチャンネルに参加してから実行してね",
+                "複数曲追加はカンマ区切り: y!play 曲1, 曲2",
+                "/news や /eew など一部コマンドは管理者専用",
+                "分からなくなったら /help または y!help でこの画面を表示",
             ]
         ),
     ),
