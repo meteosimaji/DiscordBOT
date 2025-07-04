@@ -28,6 +28,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 NEWS_CONF_FILE = os.path.join(ROOT_DIR, "news_channel.json")
 EEW_CONF_FILE = os.path.join(ROOT_DIR, "eew_channel.json")
 EEW_LAST_FILE = os.path.join(ROOT_DIR, "last_eew.txt")
+WEATHER_CONF_FILE = os.path.join(ROOT_DIR, "weather_channel.json")
 
 def _load_news_channel() -> int:
     try:
@@ -65,6 +66,24 @@ def _save_eew_channel(ch_id: int) -> None:
     except Exception as e:
         logger.error("failed to save eew channel: %s", e)
 
+def _load_weather_channel() -> int:
+    try:
+        with open(WEATHER_CONF_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return int(data.get("channel_id", 0))
+    except Exception:
+        pass
+    return 0
+
+def _save_weather_channel(ch_id: int) -> None:
+    try:
+        with open(WEATHER_CONF_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"channel_id": ch_id}, f, ensure_ascii=False, indent=2)
+        os.replace(WEATHER_CONF_FILE + ".tmp", WEATHER_CONF_FILE)
+    except Exception as e:
+        logger.error("failed to save weather channel: %s", e)
+
 def _load_last_eew() -> str:
     try:
         with open(EEW_LAST_FILE, "r", encoding="utf-8") as f:
@@ -82,6 +101,7 @@ def _save_last_eew(eid: str) -> None:
 NEWS_CHANNEL_ID = _load_news_channel()
 EEW_CHANNEL_ID = _load_eew_channel()
 LAST_EEW_ID = _load_last_eew()
+WEATHER_CHANNEL_ID = _load_weather_channel()
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -190,6 +210,37 @@ YTDL_OPTS = {
     "default_search": "ytsearch",
 }
 
+WMO_CODES = {
+    0: "快晴",
+    1: "晴れ",
+    2: "晴れ時々曇り",
+    3: "曇り",
+    45: "霧",
+    48: "霧",
+    51: "弱い霧雨",
+    53: "霧雨",
+    55: "強い霧雨",
+    56: "氷霧雨",
+    57: "強い氷霧雨",
+    61: "弱い雨",
+    63: "雨",
+    65: "強い雨",
+    66: "弱いみぞれ",
+    67: "強いみぞれ",
+    71: "弱い雪",
+    73: "雪",
+    75: "強い雪",
+    77: "細かい雪",
+    80: "にわか雨",
+    81: "にわか雨",
+    82: "激しいにわか雨",
+    85: "にわか雪",
+    86: "激しいにわか雪",
+    95: "雷雨",
+    96: "雷雨(弱い雹)",
+    99: "雷雨(強い雹)",
+}
+
 # ──────────────── Help Pages ────────────────
 # Embed titles and descriptions for each help category
 HELP_PAGES: list[tuple[str, str]] = [
@@ -230,6 +281,7 @@ HELP_PAGES: list[tuple[str, str]] = [
 
                 "/news <#channel>, y!news <#channel> : ニュース投稿チャンネルを設定",
                 "/eew <#channel>, y!eew <#channel> : 地震速報チャンネルを設定",
+                "/weather <#channel>, y!weather <#channel> : 天気予報チャンネルを設定",
 
                 "/poker [@user], y!poker [@user] : 1vs1 ポーカーで対戦",
 
@@ -303,6 +355,7 @@ HELP_PAGES: list[tuple[str, str]] = [
                 "/dice または y!XdY : サイコロを振る (例: 2d6)",
                 "/news <#channel> : ニュース投稿先を設定 (管理者のみ)",
                 "/eew <#channel> : 地震速報の通知先を設定 (管理者のみ)",
+                "/weather <#channel> : 天気予報の投稿先を設定 (管理者のみ)",
                 "/poker [@user] : 友達やBOTと1vs1ポーカー対戦",
                 "/purge <n|link> : メッセージをまとめて削除",
                 "返信で y!? と送るとその内容を名言化",
@@ -1975,6 +2028,30 @@ async def cmd_eew(msg: discord.Message, arg: str) -> None:
     except Exception as e:
         await msg.channel.send(f"テスト送信に失敗: {e}")
 
+async def cmd_weather(msg: discord.Message, arg: str) -> None:
+    """天気予報送信先チャンネルを設定"""
+    if not msg.guild:
+        await msg.reply("サーバー内でのみ使用できます。")
+        return
+    if not msg.author.guild_permissions.administrator:
+        await msg.reply("管理者専用コマンドです。", delete_after=5)
+        return
+    channel = _parse_channel(arg, msg.guild) or (
+        msg.channel if isinstance(msg.channel, discord.TextChannel) else None
+    )
+    if channel is None:
+        await msg.reply("`y!weather #チャンネル` の形式で指定してね！")
+        return
+    global WEATHER_CHANNEL_ID
+    WEATHER_CHANNEL_ID = channel.id
+    _save_weather_channel(WEATHER_CHANNEL_ID)
+    await msg.channel.send(f"天気予報チャンネルを {channel.mention} に設定しました。")
+    try:
+        target = datetime.datetime.now(JST).replace(minute=0, second=0, microsecond=0)
+        await send_weather(channel, target)
+    except Exception as e:
+        await msg.channel.send(f"テスト送信に失敗: {e}")
+
 
 # ───────────────── ニュース自動送信 ─────────────────
 NEWS_FEED_URL = "https://news.google.com/rss?hl=ja&gl=JP&ceid=JP:ja"
@@ -2284,6 +2361,98 @@ async def watch_eew() -> None:
         await asyncio.sleep(60)
 
 
+weather_task: asyncio.Task | None = None
+CITIES = {
+    "札幌": (43.0667, 141.3500),
+    "東京": (35.6895, 139.6917),
+    "大阪": (34.6937, 135.5023),
+    "福岡": (33.5902, 130.4017),
+}
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+async def _fetch_json(url: str) -> dict:
+    async with aiohttp.ClientSession() as sess:
+        async with sess.get(url, timeout=10) as resp:
+            return await resp.json()
+
+async def _fetch_overview() -> str | None:
+    url = "https://www.jma.go.jp/bosai/forecast/data/overview_forecast/130000.json"
+    try:
+        data = await _fetch_json(url)
+        text = data.get("text", "")
+        return text.split("。", 1)[0] + "。" if text else None
+    except Exception as e:
+        logger.error("weather overview fetch failed: %s", e)
+        return None
+
+async def _get_city_weather(lat: float, lon: float, target: datetime.datetime) -> tuple[str, float, float] | None:
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}&hourly=temperature_2m,surface_pressure,weathercode"
+        "&timezone=Asia%2FTokyo&forecast_days=2"
+    )
+    try:
+        data = await _fetch_json(url)
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        temps = hourly.get("temperature_2m", [])
+        press = hourly.get("surface_pressure", [])
+        codes = hourly.get("weathercode", [])
+        target_str = target.strftime("%Y-%m-%dT%H:00")
+        if target_str in times:
+            i = times.index(target_str)
+            return WMO_CODES.get(codes[i], str(codes[i])), temps[i], press[i]
+    except Exception as e:
+        logger.error("weather fetch failed: %s", e)
+    return None
+
+async def send_weather(channel: discord.TextChannel, target: datetime.datetime):
+    lines = []
+    for name, (lat, lon) in CITIES.items():
+        info = await _get_city_weather(lat, lon, target)
+        if info:
+            desc, temp, pres = info
+            lines.append(f"{name}: {desc} {temp:.1f}℃ {pres:.0f}hPa")
+    if not lines:
+        return
+    title = target.strftime("%Y-%m-%d %H:%M の天気")
+    emb = discord.Embed(title=title, description="\n".join(lines), colour=0x3498db)
+    await channel.send(embed=emb)
+    overview = await _fetch_overview()
+    if overview:
+        await channel.send(overview)
+
+async def scheduled_weather() -> None:
+    await client.wait_until_ready()
+    while True:
+        now = datetime.datetime.now(JST)
+        hours = [0, 6, 12, 18]
+        future = [
+            datetime.datetime.combine(now.date(), datetime.time(h, tzinfo=JST))
+            for h in hours
+            if datetime.datetime.combine(now.date(), datetime.time(h, tzinfo=JST)) > now
+        ]
+        if future:
+            next_run = min(future)
+        else:
+            next_run = datetime.datetime.combine(now.date() + datetime.timedelta(days=1), datetime.time(0, tzinfo=JST))
+        await asyncio.sleep((next_run - now).total_seconds())
+        if not WEATHER_CHANNEL_ID:
+            continue
+        ch = client.get_channel(WEATHER_CHANNEL_ID)
+        if ch is None:
+            try:
+                ch = await client.fetch_channel(WEATHER_CHANNEL_ID)
+            except Exception as e:
+                logger.error("failed to fetch weather channel: %s", e)
+                continue
+        if isinstance(ch, MESSAGE_CHANNEL_TYPES):
+            try:
+                await send_weather(ch, next_run)
+            except Exception as e:
+                logger.error("failed to send weather: %s", e)
+
+
 
 # ───────────────── イベント ─────────────────
 from discord import Activity, ActivityType, Status
@@ -2307,6 +2476,9 @@ async def on_ready():
     global eew_task
     if eew_task is None or eew_task.done():
         eew_task = asyncio.create_task(watch_eew())
+    global weather_task
+    if weather_task is None or weather_task.done():
+        weather_task = asyncio.create_task(scheduled_weather())
 
 # ----- Slash command wrappers -----
 @tree.command(name="ping", description="Botの応答速度を表示")
@@ -2461,6 +2633,26 @@ async def sc_eew(itx: discord.Interaction, channel: discord.TextChannel):
     )
     try:
         await send_latest_eew(channel)
+    except Exception as e:
+        await itx.followup.send(f"テスト送信に失敗: {e}")
+
+
+@tree.command(name="weather", description="天気予報送信先チャンネルを設定")
+@app_commands.describe(channel="投稿先チャンネル")
+async def sc_weather(itx: discord.Interaction, channel: discord.TextChannel):
+
+    if not itx.user.guild_permissions.administrator:
+        await itx.response.send_message("管理者専用コマンドです。", ephemeral=True)
+        return
+    global WEATHER_CHANNEL_ID
+    WEATHER_CHANNEL_ID = channel.id
+    _save_weather_channel(WEATHER_CHANNEL_ID)
+    await itx.response.send_message(
+        f"天気予報チャンネルを {channel.mention} に設定しました。"
+    )
+    try:
+        target = datetime.datetime.now(JST).replace(minute=0, second=0, microsecond=0)
+        await send_weather(channel, target)
     except Exception as e:
         await itx.followup.send(f"テスト送信に失敗: {e}")
 
@@ -3072,6 +3264,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "tex": await cmd_tex(msg, arg)
     elif cmd == "news": await cmd_news(msg, arg)
     elif cmd == "eew": await cmd_eew(msg, arg)
+    elif cmd == "weather": await cmd_weather(msg, arg)
 
     elif cmd == "poker": await cmd_poker(msg, arg)
 
