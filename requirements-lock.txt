@@ -77,3 +77,4 @@ typing_extensions==4.14.0
 urllib3==2.5.0
 yarl==1.20.1
 yt-dlp==2025.6.25
+beautifulsoup4==4.12.3
