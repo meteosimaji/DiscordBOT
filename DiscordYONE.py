@@ -3272,8 +3272,8 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
             resp = openai_client.responses.create(
                 model="gpt-4.1",
                 instructions=(
-                    f"Translate the following message to {lang}. Keep it concise. "
-                    f"The flag emoji is {emoji}. Unless otherwise instructed, reply in Japanese."
+                    f"Translate the following message into {lang}, considering the regional variant indicated by this flag {emoji}. "
+                    f"Provide only the translation, and keep it concise."
                 ),
                 input=original,
                 temperature=0.3,
