@@ -1447,7 +1447,7 @@ import asyncio
 
 async def cmd_gpt(msg: discord.Message, prompt: str):
     if not prompt:
-        await msg.channel.send("`y?` の後に質問を書いてね！"); return
+        await msg.reply("`y?` の後に質問を書いてね！"); return
     async with msg.channel.typing():
         try:
             # ストリーミングで応答を受信
@@ -1463,7 +1463,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
                 stream=True,
             )
 
-            reply = await msg.channel.send("…")
+            reply = await msg.reply("…")
             text = ""
             buf = ""
             last_edit = time.monotonic()
@@ -1489,7 +1489,7 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
             else:
                 await reply.edit(content=text)
         except Exception as e:
-            await msg.channel.send(f"エラー: {e}", delete_after=5)
+            await msg.reply(f"エラー: {e}", delete_after=5)
 
 # ──────────── 🎵  コマンド郡 ────────────
 
