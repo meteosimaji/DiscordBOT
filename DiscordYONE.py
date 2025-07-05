@@ -103,7 +103,10 @@ EEW_CHANNEL_ID = _load_eew_channel()
 LAST_EEW_ID = _load_last_eew()
 WEATHER_CHANNEL_ID = _load_weather_channel()
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+openai_client = OpenAI(
+    api_key=OPENAI_API_KEY,
+    default_headers={"OpenAI-Beta": "assistants=v2"},
+)
 
 # ───────────────── Voice Transcription / TTS ─────────────────
 
@@ -1459,12 +1462,15 @@ async def cmd_gpt(msg: discord.Message, messages: list[dict[str, str]]):
     async with msg.channel.typing():
         try:
             # ストリーミングで応答を受信
-            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            client = AsyncOpenAI(
+                api_key=OPENAI_API_KEY,
+                default_headers={"OpenAI-Beta": "assistants=v2"},
+            )
             stream = await client.chat.completions.create(
                 model="gpt-4.1",
                 tools=[
-                    {"type": "web_search_preview"},
-                    {"type": "code_interpreter", "container": {"type": "auto"}},
+                    {"type": "web_search"},
+                    {"type": "code_interpreter"},
                 ],
                 messages=messages,
                 temperature=0.7,
