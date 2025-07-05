@@ -2335,8 +2335,18 @@ async def watch_eew() -> None:
     while True:
         try:
             async with aiohttp.ClientSession() as sess:
-                async with sess.get(EEW_LIST_URL, timeout=10) as resp:
-                    data = await resp.json()
+                try:
+                    async with sess.get(EEW_LIST_URL, timeout=10) as resp:
+                        if resp.status == 429:
+                            logger.warning("EEW API rate limited; backing off")
+                            await asyncio.sleep(60)
+                            continue
+                        resp.raise_for_status()
+                        data = await resp.json()
+                except aiohttp.ClientError as e:
+                    logger.error("EEW fetch network error: %s", e)
+                    await asyncio.sleep(30)
+                    continue
             if data:
                 latest = data[0]
                 eid = latest.get("json", "")
@@ -2358,7 +2368,8 @@ async def watch_eew() -> None:
                                 logger.error("failed to send eew: %s", e)
         except Exception as e:
             logger.error("EEW monitor error: %s", e)
-        await asyncio.sleep(60)
+        # poll for new alerts roughly every 15 seconds
+        await asyncio.sleep(15)
 
 
 weather_task: asyncio.Task | None = None
