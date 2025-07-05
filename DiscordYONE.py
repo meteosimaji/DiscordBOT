@@ -1469,8 +1469,8 @@ async def cmd_gpt(msg: discord.Message, messages: list[dict[str, str]]):
             stream = await client.chat.completions.create(
                 model="gpt-4.1",
                 tools=[
-                    {"type": "web_search_preview"},
-                    {"type": "code_interpreter", "container": {"type": "auto"}},
+                    {"type": "web_search"},
+                    {"type": "code_interpreter"},
                 ],
                 messages=messages,
                 temperature=0.7,
