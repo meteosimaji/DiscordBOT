@@ -1,6 +1,6 @@
 import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base64
 from discord import app_commands
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import json, feedparser, aiohttp
 from bs4 import BeautifulSoup
 
@@ -1395,14 +1395,11 @@ import asyncio
 async def cmd_gpt(msg: discord.Message, prompt: str):
     if not prompt:
         await msg.channel.send("`y?` の後に質問を書いてね！"); return
-    await msg.channel.typing()
-    try:
-        # OpenAIリクエストを別スレッドで
-        loop = asyncio.get_running_loop()
-
-        resp = await loop.run_in_executor(
-            None,
-            lambda: openai_client.responses.create(
+    async with msg.channel.typing():
+        try:
+            # ストリーミングで応答を受信
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            stream = await client.responses.create(
                 model="gpt-4.1",
                 tools=[
                     {"type": "web_search_preview"},
@@ -1410,13 +1407,21 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
                 ],
                 input=prompt,
                 temperature=0.7,
+                stream=True,
             )
-        )
-        ans = resp.output_text.strip()
 
-        await msg.channel.send(ans[:1900] + ("…" if len(ans) > 1900 else ""))
-    except Exception as e:
-        await msg.channel.send(f"エラー: {e}", delete_after=5)
+            reply = await msg.channel.send("…")
+            text = ""
+
+            async for event in stream:
+                if event.type == "response.output_text.delta":
+                    text += event.delta
+                    if len(text) > 1900:
+                        await reply.edit(content=text[:1900] + "…")
+                        break
+                    await reply.edit(content=text)
+        except Exception as e:
+            await msg.channel.send(f"エラー: {e}", delete_after=5)
 
 # ──────────── 🎵  コマンド郡 ────────────
 
