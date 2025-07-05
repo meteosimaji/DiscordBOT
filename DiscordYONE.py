@@ -152,6 +152,48 @@ def parse_cmd(content: str):
     return parts[0].lower(), parts[1] if len(parts) > 1 else ""
 
 
+async def _gather_reply_chain(msg: discord.Message, limit: int | None = None) -> list[discord.Message]:
+    """Return the full reply chain for ``msg``.
+
+    If ``limit`` is given, stop after that many messages. When ``limit`` is
+    ``None`` (default) the chain is collected until no reference is present.
+    ``SlashMessage`` instances are ignored because interactions cannot reply to
+    other messages.
+    """
+    chain: list[discord.Message] = []
+    current = msg
+    while getattr(current, "reference", None):
+        if limit is not None and len(chain) >= limit:
+            break
+        try:
+            current = await current.channel.fetch_message(current.reference.message_id)
+        except Exception:
+            break
+        chain.append(current)
+    chain.reverse()
+    return chain
+
+
+def _strip_bot_mention(text: str) -> str:
+    if client.user is None:
+        return text.strip()
+    return re.sub(fr"<@!?{client.user.id}>", "", text).strip()
+
+
+async def _make_gpt_prompt(msg: discord.Message, text: str) -> str:
+    """Construct a prompt from the reply chain plus ``text``."""
+    history = await _gather_reply_chain(msg)
+    lines: list[str] = []
+    for m in history:
+        if not hasattr(m, "content"):
+            continue
+        content = _strip_bot_mention(m.content)
+        if content:
+            lines.append(f"{m.author.display_name}: {content}")
+    lines.append(f"{msg.author.display_name}: {text}")
+    return "\n".join(lines)
+
+
 class _SlashChannel:
     """Proxy object for sending/typing via Interaction."""
 
@@ -2610,7 +2652,9 @@ async def sc_gpt(itx: discord.Interaction, text: str):
 
     try:
         await itx.response.defer()
-        await cmd_gpt(SlashMessage(itx), text)
+        msg = SlashMessage(itx)
+        prompt = await _make_gpt_prompt(msg, text)
+        await cmd_gpt(msg, prompt)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -3275,7 +3319,9 @@ async def on_message(msg: discord.Message):
     elif cmd == "date": await cmd_date(msg, arg)
     elif cmd == "user": await cmd_user(msg, arg)
     elif cmd == "dice": await cmd_dice(msg, arg or "1d100")
-    elif cmd == "gpt":  await cmd_gpt(msg, arg)
+    elif cmd == "gpt":
+        prompt = await _make_gpt_prompt(msg, arg)
+        await cmd_gpt(msg, prompt)
     elif cmd == "help": await cmd_help(msg)
     elif cmd == "play": await cmd_play(msg, arg, split_commas=True)
     elif cmd == "queue":await cmd_queue(msg, arg)
@@ -3294,6 +3340,16 @@ async def on_message(msg: discord.Message):
     elif cmd == "weather": await cmd_weather(msg, arg)
 
     elif cmd == "poker": await cmd_poker(msg, arg)
+
+    else:
+        mention = client.user and any(m.id == client.user.id for m in msg.mentions)
+        history = await _gather_reply_chain(msg)
+        replied = any(m.author.id == client.user.id for m in history)
+        if mention or replied:
+            text = _strip_bot_mention(msg.content)
+            if text:
+                prompt = await _make_gpt_prompt(msg, text)
+                await cmd_gpt(msg, prompt)
 
 
 # ───────────────── 起動 ─────────────────
