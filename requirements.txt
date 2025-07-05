@@ -1,5 +1,5 @@
 discord.py==2.5.2
-openai==1.93.0
+openai>=1.14.0
 yt-dlp==2025.6.25
 discord-ext-voice-recv==0.5.2a179
 python-dotenv==1.1.1
@@ -11,3 +11,4 @@ treys
 feedparser
 matplotlib
 beautifulsoup4
+typing_extensions>=4.9
