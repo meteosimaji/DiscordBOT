@@ -187,10 +187,12 @@ GPT_SYSTEM_PROMPT = (
 )
 
 
-async def _make_gpt_prompt(msg: discord.Message, text: str) -> str:
-    """Construct a prompt from the reply chain plus ``text``."""
+async def _make_gpt_messages(msg: discord.Message, text: str) -> list[dict[str, str]]:
+    """Return a messages list for ChatGPT from the reply chain plus ``text``."""
     history = await _gather_reply_chain(msg)
-    lines: list[str] = [GPT_SYSTEM_PROMPT]
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": GPT_SYSTEM_PROMPT}
+    ]
     for m in history:
         if not hasattr(m, "content"):
             continue
@@ -198,11 +200,17 @@ async def _make_gpt_prompt(msg: discord.Message, text: str) -> str:
         if not content:
             continue
         if client.user is not None and m.author.id == client.user.id:
-            lines.append(f"assistant {content}")
+            messages.append({"role": "assistant", "content": content})
         else:
-            lines.append(f"User {m.author.display_name}: {content}")
-    lines.append(f"User {msg.author.display_name}: {text}")
-    return "\n".join(lines)
+            messages.append({
+                "role": "user",
+                "content": f"User {m.author.display_name}: {content}",
+            })
+    messages.append({
+        "role": "user",
+        "content": f"User {msg.author.display_name}: {text}",
+    })
+    return messages
 
 
 class _SlashChannel:
@@ -1445,20 +1453,20 @@ async def cmd_dice(msg: discord.Message, nota: str):
 
 import asyncio
 
-async def cmd_gpt(msg: discord.Message, prompt: str):
-    if not prompt:
+async def cmd_gpt(msg: discord.Message, messages: list[dict[str, str]]):
+    if not messages:
         await msg.reply("`y?` の後に質問を書いてね！"); return
     async with msg.channel.typing():
         try:
             # ストリーミングで応答を受信
             client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-            stream = await client.responses.create(
+            stream = await client.chat.completions.create(
                 model="gpt-4.1",
                 tools=[
                     {"type": "web_search_preview"},
                     {"type": "code_interpreter", "container": {"type": "auto"}},
                 ],
-                input=prompt,
+                messages=messages,
                 temperature=0.7,
                 stream=True,
             )
@@ -1468,18 +1476,18 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
             buf = ""
             last_edit = time.monotonic()
 
-            async for event in stream:
-                if event.type == "response.output_text.delta":
-                    buf += event.delta
-                    now = time.monotonic()
-                    if (now - last_edit) >= 0.5 or len(buf) >= 20:
-                        text += buf
-                        buf = ""
-                        if len(text) > 1900:
-                            await reply.edit(content=text[:1900] + "…")
-                            break
-                        await reply.edit(content=text)
-                        last_edit = now
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                buf += delta
+                now = time.monotonic()
+                if (now - last_edit) >= 0.5 or len(buf) >= 20:
+                    text += buf
+                    buf = ""
+                    if len(text) > 1900:
+                        await reply.edit(content=text[:1900] + "…")
+                        break
+                    await reply.edit(content=text)
+                    last_edit = now
 
             # 余ったバッファを反映
             if buf:
@@ -2682,8 +2690,8 @@ async def sc_gpt(itx: discord.Interaction, text: str):
     try:
         await itx.response.defer()
         msg = SlashMessage(itx)
-        prompt = await _make_gpt_prompt(msg, text)
-        await cmd_gpt(msg, prompt)
+        messages = await _make_gpt_messages(msg, text)
+        await cmd_gpt(msg, messages)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -3349,8 +3357,8 @@ async def on_message(msg: discord.Message):
     elif cmd == "user": await cmd_user(msg, arg)
     elif cmd == "dice": await cmd_dice(msg, arg or "1d100")
     elif cmd == "gpt":
-        prompt = await _make_gpt_prompt(msg, arg)
-        await cmd_gpt(msg, prompt)
+        messages = await _make_gpt_messages(msg, arg)
+        await cmd_gpt(msg, messages)
     elif cmd == "help": await cmd_help(msg)
     elif cmd == "play": await cmd_play(msg, arg, split_commas=True)
     elif cmd == "queue":await cmd_queue(msg, arg)
@@ -3377,8 +3385,8 @@ async def on_message(msg: discord.Message):
         if mention or replied:
             text = _strip_bot_mention(msg.content)
             if text:
-                prompt = await _make_gpt_prompt(msg, text)
-                await cmd_gpt(msg, prompt)
+                messages = await _make_gpt_messages(msg, text)
+                await cmd_gpt(msg, messages)
 
 
 # ───────────────── 起動 ─────────────────
