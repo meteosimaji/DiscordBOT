@@ -2271,16 +2271,27 @@ async def _send_eew(channel: discord.TextChannel, item: dict):
             detail = await resp.json(content_type=None)
     head = detail.get("Head", {})
     body = detail.get("Body", {})
-    area = body.get("Earthquake", {}).get("Hypocenter", {}).get("Area", {}).get("Name", "")
+    area = (
+        body.get("Earthquake", {})
+        .get("Hypocenter", {})
+        .get("Area", {})
+        .get("Name", "")
+    )
     mag = body.get("Earthquake", {}).get("Magnitude", "")
     maxint = body.get("Intensity", {}).get("Observation", {}).get("MaxInt", "")
+    ctt = item.get("ctt")
     dt = head.get("TargetDateTime", "")
     formatted_dt = dt
-    if dt:
+    if ctt:
+        try:
+            dt_obj = datetime.datetime.strptime(ctt, "%Y%m%d%H%M%S")
+            formatted_dt = dt_obj.strftime("%Y年%m月%d日(%a)%H:%M:%S")
+        except Exception:
+            pass
+    elif dt:
         try:
             dt_obj = datetime.datetime.fromisoformat(dt)
-            weekday = "月火水木金土日"[dt_obj.weekday()]
-            formatted_dt = dt_obj.strftime(f"%Y年%m月%d日({weekday})%H:%M:%S")
+            formatted_dt = dt_obj.strftime("%Y年%m月%d日(%a)%H:%M:%S")
         except Exception:
             pass
     title = item.get("ttl") or head.get("Title", "地震情報")
