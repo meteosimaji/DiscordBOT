@@ -181,11 +181,9 @@ def _strip_bot_mention(text: str) -> str:
 
 
 GPT_SYSTEM_PROMPT = (
-    "You're a friendly Discord chatbot chatting casually. "
-    "Responses should be brief, clear, and upbeat. "
-    "Unless otherwise instructed, reply in Japanese. "
-    "Chat history lines are prefixed by 'User <name>' or 'assistant' before the message. "
-    "Use the names when helpful."
+    "You're a casual, friendly Discord bot. "
+    "Reply briefly and cheerfully in Japanese unless instructed otherwise. "
+    "Chat history is prefixed with 'User <name>' or 'assistant'. Use names if relevant."
 )
 
 
@@ -202,10 +200,8 @@ async def _make_gpt_prompt(msg: discord.Message, text: str) -> str:
         if client.user is not None and m.author.id == client.user.id:
             lines.append(f"assistant {content}")
         else:
-            lines.append(f"User {m.author.display_name}")
-            lines.append(f"User {content}")
-    lines.append(f"User {msg.author.display_name}")
-    lines.append(f"User {text}")
+            lines.append(f"User {m.author.display_name}: {content}")
+    lines.append(f"User {msg.author.display_name}: {text}")
     return "\n".join(lines)
 
 
@@ -2182,7 +2178,10 @@ async def _summarize(text: str) -> str:
             None,
             lambda: openai_client.responses.create(
                 model="gpt-4.1",
-                instructions="次のテキストを日本語で2文程度に要約してください。",
+                instructions=(
+                    "Summarize the text below in Japanese, using about two concise sentences. "
+                    "Unless otherwise instructed, reply in Japanese."
+                ),
                 input=text,
                 temperature=0.3,
             ),
@@ -3273,8 +3272,8 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
             resp = openai_client.responses.create(
                 model="gpt-4.1",
                 instructions=(
-                    f"Translate the user's message into {lang}. "
-                    f"The flag emoji is {emoji}. Respond only with the translated text without the emoji."
+                    f"Translate the following message to {lang}. Keep it concise. "
+                    f"The flag emoji is {emoji}. Unless otherwise instructed, reply in Japanese."
                 ),
                 input=original,
                 temperature=0.3,
