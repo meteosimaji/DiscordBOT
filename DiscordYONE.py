@@ -180,17 +180,32 @@ def _strip_bot_mention(text: str) -> str:
     return re.sub(fr"<@!?{client.user.id}>", "", text).strip()
 
 
+GPT_SYSTEM_PROMPT = (
+    "You're a friendly Discord chatbot chatting casually. "
+    "Responses should be brief, clear, and upbeat. "
+    "Unless otherwise instructed, reply in Japanese. "
+    "Chat history lines are prefixed by 'User <name>' or 'assistant' before the message. "
+    "Use the names when helpful."
+)
+
+
 async def _make_gpt_prompt(msg: discord.Message, text: str) -> str:
     """Construct a prompt from the reply chain plus ``text``."""
     history = await _gather_reply_chain(msg)
-    lines: list[str] = []
+    lines: list[str] = [GPT_SYSTEM_PROMPT]
     for m in history:
         if not hasattr(m, "content"):
             continue
         content = _strip_bot_mention(m.content)
-        if content:
-            lines.append(f"{m.author.display_name}: {content}")
-    lines.append(f"{msg.author.display_name}: {text}")
+        if not content:
+            continue
+        if client.user is not None and m.author.id == client.user.id:
+            lines.append(f"assistant {content}")
+        else:
+            lines.append(f"User {m.author.display_name}")
+            lines.append(f"User {content}")
+    lines.append(f"User {msg.author.display_name}")
+    lines.append(f"User {text}")
     return "\n".join(lines)
 
 
@@ -1454,14 +1469,29 @@ async def cmd_gpt(msg: discord.Message, prompt: str):
 
             reply = await msg.channel.send("…")
             text = ""
+            buf = ""
+            last_edit = time.monotonic()
 
             async for event in stream:
                 if event.type == "response.output_text.delta":
-                    text += event.delta
-                    if len(text) > 1900:
-                        await reply.edit(content=text[:1900] + "…")
-                        break
-                    await reply.edit(content=text)
+                    buf += event.delta
+                    now = time.monotonic()
+                    if (now - last_edit) >= 0.5 or len(buf) >= 20:
+                        text += buf
+                        buf = ""
+                        if len(text) > 1900:
+                            await reply.edit(content=text[:1900] + "…")
+                            break
+                        await reply.edit(content=text)
+                        last_edit = now
+
+            # 余ったバッファを反映
+            if buf:
+                text += buf
+            if len(text) > 1900:
+                await reply.edit(content=text[:1900] + "…")
+            else:
+                await reply.edit(content=text)
         except Exception as e:
             await msg.channel.send(f"エラー: {e}", delete_after=5)
 
