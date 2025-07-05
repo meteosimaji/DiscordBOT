@@ -250,7 +250,7 @@ class SlashMessage:
         self.attachments: list[discord.Attachment] = attachments or []
 
     async def reply(self, *args, **kwargs):
-        await self.channel.send(*args, **kwargs)
+        return await self.channel.send(*args, **kwargs)
 
     async def add_reaction(self, emoji):
         await self.channel.send(emoji)
