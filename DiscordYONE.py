@@ -1,6 +1,6 @@
 import os, re, time, random, discord, tempfile, logging, datetime, asyncio, base64
 from discord import app_commands
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI, AssistantEventHandler
 import json, feedparser, aiohttp
 from bs4 import BeautifulSoup
 
@@ -24,6 +24,7 @@ load_dotenv(os.path.join(ROOT_DIR, ".env"))
 # Load credentials from environment variables
 TOKEN = os.getenv("DISCORD_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+ASSISTANT_ID = os.getenv("ASSISTANT_ID", "")
 
 NEWS_CONF_FILE = os.path.join(ROOT_DIR, "news_channel.json")
 EEW_CONF_FILE = os.path.join(ROOT_DIR, "eew_channel.json")
@@ -103,10 +104,7 @@ EEW_CHANNEL_ID = _load_eew_channel()
 LAST_EEW_ID = _load_last_eew()
 WEATHER_CHANNEL_ID = _load_weather_channel()
 
-openai_client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    default_headers={"OpenAI-Beta": "assistants=v2"},
-)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ───────────────── Voice Transcription / TTS ─────────────────
 
@@ -181,39 +179,6 @@ def _strip_bot_mention(text: str) -> str:
     if client.user is None:
         return text.strip()
     return re.sub(fr"<@!?{client.user.id}>", "", text).strip()
-
-
-GPT_SYSTEM_PROMPT = (
-    "You're a casual, friendly Discord bot. "
-    "Reply briefly and cheerfully in Japanese unless instructed otherwise. "
-    "Chat history is prefixed with 'User <name>' or 'assistant'. Use names if relevant."
-)
-
-
-async def _make_gpt_messages(msg: discord.Message, text: str) -> list[dict[str, str]]:
-    """Return a messages list for ChatGPT from the reply chain plus ``text``."""
-    history = await _gather_reply_chain(msg)
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": GPT_SYSTEM_PROMPT}
-    ]
-    for m in history:
-        if not hasattr(m, "content"):
-            continue
-        content = _strip_bot_mention(m.content)
-        if not content:
-            continue
-        if client.user is not None and m.author.id == client.user.id:
-            messages.append({"role": "assistant", "content": content})
-        else:
-            messages.append({
-                "role": "user",
-                "content": f"User {m.author.display_name}: {content}",
-            })
-    messages.append({
-        "role": "user",
-        "content": f"User {msg.author.display_name}: {text}",
-    })
-    return messages
 
 
 class _SlashChannel:
@@ -1456,54 +1421,47 @@ async def cmd_dice(msg: discord.Message, nota: str):
 
 import asyncio
 
-async def cmd_gpt(msg: discord.Message, messages: list[dict[str, str]]):
-    if not messages:
-        await msg.reply("`y?` の後に質問を書いてね！"); return
-    async with msg.channel.typing():
-        try:
-            # ストリーミングで応答を受信
-            client = AsyncOpenAI(
-                api_key=OPENAI_API_KEY,
-                default_headers={"OpenAI-Beta": "assistants=v2"},
-            )
-            stream = await client.chat.completions.create(
-                model="gpt-4.1",
-                tools=[
-                    {"type": "web_search"},
-                    {"type": "code_interpreter"},
-                ],
-                messages=messages,
-                temperature=0.7,
-                stream=True,
-            )
 
-            reply = await msg.reply("…")
-            text = ""
-            buf = ""
-            last_edit = time.monotonic()
+class StreamHandler(AssistantEventHandler):
+    def __init__(self, reply_msg):
+        super().__init__()
+        self.buf = ""
+        self.reply_msg = reply_msg
+        self.last_edit = time.monotonic()
 
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                buf += delta
-                now = time.monotonic()
-                if (now - last_edit) >= 0.5 or len(buf) >= 20:
-                    text += buf
-                    buf = ""
-                    if len(text) > 1900:
-                        await reply.edit(content=text[:1900] + "…")
-                        break
-                    await reply.edit(content=text)
-                    last_edit = now
+    def on_text_delta(self, delta, *_):
+        self.buf += delta.value or ""
+        if time.monotonic() - self.last_edit > 0.5:
+            asyncio.create_task(self.reply_msg.edit(content=self.buf[:1900]))
+            self.last_edit = time.monotonic()
 
-            # 余ったバッファを反映
-            if buf:
-                text += buf
-            if len(text) > 1900:
-                await reply.edit(content=text[:1900] + "…")
-            else:
-                await reply.edit(content=text)
-        except Exception as e:
-            await msg.reply(f"エラー: {e}", delete_after=5)
+
+async def cmd_gpt(msg: discord.Message, user_text: str):
+    if not user_text.strip():
+        await msg.reply("質問を書いてね！")
+        return
+
+    from thread_store import get, save
+
+    t_id = get(msg.channel.id)
+    if not t_id:
+        t_id = openai_client.beta.threads.create().id
+        save(msg.channel.id, t_id)
+
+    openai_client.beta.threads.messages.create(
+        thread_id=t_id,
+        role="user",
+        content=user_text,
+    )
+
+    reply = await msg.reply("…")
+    handler = StreamHandler(reply)
+    with openai_client.beta.threads.runs.stream(
+        thread_id=t_id,
+        assistant_id=ASSISTANT_ID,
+        event_handler=handler,
+    ) as stream:
+        stream.until_done()
 
 # ──────────── 🎵  コマンド郡 ────────────
 
@@ -2696,8 +2654,7 @@ async def sc_gpt(itx: discord.Interaction, text: str):
     try:
         await itx.response.defer()
         msg = SlashMessage(itx)
-        messages = await _make_gpt_messages(msg, text)
-        await cmd_gpt(msg, messages)
+        await cmd_gpt(msg, text)
     except Exception as e:
         await itx.followup.send(f"エラー発生: {e}")
 
@@ -3363,8 +3320,7 @@ async def on_message(msg: discord.Message):
     elif cmd == "user": await cmd_user(msg, arg)
     elif cmd == "dice": await cmd_dice(msg, arg or "1d100")
     elif cmd == "gpt":
-        messages = await _make_gpt_messages(msg, arg)
-        await cmd_gpt(msg, messages)
+        await cmd_gpt(msg, arg)
     elif cmd == "help": await cmd_help(msg)
     elif cmd == "play": await cmd_play(msg, arg, split_commas=True)
     elif cmd == "queue":await cmd_queue(msg, arg)
@@ -3391,8 +3347,7 @@ async def on_message(msg: discord.Message):
         if mention or replied:
             text = _strip_bot_mention(msg.content)
             if text:
-                messages = await _make_gpt_messages(msg, text)
-                await cmd_gpt(msg, messages)
+                await cmd_gpt(msg, text)
 
 
 # ───────────────── 起動 ─────────────────
@@ -3401,4 +3356,6 @@ if __name__ == "__main__":
         raise RuntimeError("DISCORD_TOKEN is not set. Check your environment variables or .env file")
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not set. Check your environment variables or .env file")
+    if not ASSISTANT_ID:
+        raise RuntimeError("ASSISTANT_ID is not set. Run scripts/create_assistant.py and set it in .env")
     client.run(TOKEN)
